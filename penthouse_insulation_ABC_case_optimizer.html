@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>펜트하우스 보온재 계산기 — A/B/C 케이스</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="hero">
+  <div class="inner">
+    <h1>펜트하우스 보온재 계산기</h1>
+    <div class="fixed-badge">
+      패널 고정 <b>1800 × 600mm</b> · 1장 = <b>1.08㎡</b><br>
+      바닥면 제외 · 수치는 케이스별 하드코딩
+    </div>
+  </div>
+</header>
+
+<div class="sticky">
+  <div class="inner">
+    <div class="sticky-title">세 케이스 전체 요약
+      <span class="muted small">여유율 <b id="acBuffer">-</b> 반영</span>
+    </div>
+    <!-- 세 케이스 요약 카드 (A/B/C/합계) -->
+    <div class="allcases" id="allCasesSummary"></div>
+    <nav class="jump" id="jumpNav">
+      <a href="#sec-cases">케이스</a>
+      <a href="#sec-summary">요약</a>
+      <a href="#sec-method">덮는 방법</a>
+      <a href="#sec-visual">시각화</a>
+      <a href="#sec-zones">구역별</a>
+      <a href="#sec-compare">비교</a>
+      <a href="#sec-audit">검산</a>
+    </nav>
+  </div>
+</div>
+
+<main>
+  <div class="inner">
+
+    <!-- 1. 케이스 선택 -->
+    <section id="sec-cases">
+      <div class="sec-head"><span class="sec-num">1</span><h2>케이스 요약</h2></div>
+      <p class="sec-sub">상단 고정 바의 세 케이스 전체 요약에서 케이스를 고르면 여기와 아래 모든 계산이 바뀝니다. (미니 도형은 실제 비례의 정면도)</p>
+      <div class="case-grid" id="caseGrid"></div>
+    </section>
+
+    <!-- 2. 결과 요약 -->
+    <section id="sec-summary">
+      <div class="sec-head"><span class="sec-num">2</span><h2>결과 요약</h2></div>
+      <p class="sec-sub">지금 선택한 기준(천장 전개 + 바닥 잔여띠 최적 선택 + 양끝면 기준)의 최종 수량입니다.</p>
+      <div class="card">
+        <div class="hero-grid">
+          <div>
+            <div class="hero-label" id="heroLabel">-</div>
+            <div class="big-num"><span id="heroTotal">-</span><small> 장 필요</small></div>
+            <div class="break-bar" id="breakBar" role="img" aria-label="구역별 수량 비율"></div>
+            <div class="break-legend" id="breakLegend"></div>
+          </div>
+          <div class="order-card">
+            <div>
+              <div class="hero-label">발주 권장 <span class="muted small">(여유율 포함 올림)</span></div>
+              <div class="big-num"><span id="orderBig">-</span><small> 장 발주</small></div>
+              <div class="small muted" id="orderSub">-</div>
+            </div>
+            <div class="seg" id="bufferSeg" aria-label="발주 여유율"></div>
+            <div class="chip-row">
+              <div class="chip">3% 여유<b id="b3">-</b></div>
+              <div class="chip">5% 여유<b id="b5">-</b></div>
+              <div class="chip">7% 여유<b id="b7">-</b></div>
+              <div class="chip">10% 여유<b id="b10">-</b></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat"><div class="k">패널 총면적</div><div class="v" id="statPanel">-</div><div class="s" id="statPanelSub">-</div></div>
+          <div class="stat"><div class="k">실제 피복면적</div><div class="v" id="statActual">-</div><div class="s">지붕 접힘 포함 외피 면적</div></div>
+          <div class="stat"><div class="k">손실률</div><div class="v" id="statLoss">-</div><div class="s" id="statLossSub">-</div></div>
+          <div class="stat"><div class="k">지붕 접힘</div><div class="v" id="statFold">-</div><div class="s" id="statFoldSub">-</div></div>
+        </div>
+
+        <details class="dims">
+          <summary>케이스 치수 전체 보기</summary>
+          <p id="caseDims">-</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- 3. 덮는 방법 -->
+    <section id="sec-method">
+      <div class="sec-head"><span class="sec-num">3</span><h2>어떻게 덮나요? — 전개 기준 5단계</h2></div>
+      <p class="sec-sub">높은 벽 위 모서리를 기준으로 한쪽은 높은 벽을 직선 하강, 반대쪽은 지붕·단차·낮은 벽을 따라 하강하도록 계산합니다.</p>
+      <div class="steps" id="stepsGrid"></div>
+      <div class="orientation-guide" aria-label="단위 보온재 배치 방향 안내">
+        <div class="orientation-item"><span class="panel-icon horizontal"></span><span><b>보온재 1장</b><small>1800 × 600mm · 1.08㎡ 고정</small></span></div>
+        <div class="orientation-item"><span class="panel-icon vertical"></span><span><b>세로 배치</b><small>폭 600 · 높이 1800 (벽 본판)</small></span></div>
+        <div class="orientation-item"><span class="panel-icon horizontal"></span><span><b>가로 배치</b><small>폭 1800 · 높이 600 (밴드)</small></span></div>
+        <div class="orientation-item"><span class="panel-icon roof"></span><span><b>천장 전개</b><small>길이방향 600 · 전개방향 1800</small></span></div>
+      </div>
+    </section>
+
+    <!-- 4. 시각화 -->
+    <section id="sec-visual">
+      <div class="sec-head"><span class="sec-num">4</span><h2 id="visualTitle">배치 시각화</h2></div>
+      <p class="sec-sub" id="visualSub">-</p>
+      <div class="card">
+        <div class="tabs" id="viewTabs">
+          <button class="tab" data-view="summary">전체 브리핑</button>
+          <button class="tab" data-view="roof">천장 전개</button>
+          <button class="tab" data-view="ends">양끝 L자면</button>
+          <button class="tab tab-3d active" data-view="walls">3D 덮기</button>
+        </div>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--blue);border-color:var(--blue-line)"></i>기본 패널</span>
+          <span><i class="swatch" style="background:var(--green);border-color:var(--green-line)"></i>접힘</span>
+          <span><i class="swatch" style="background:var(--amber);border-color:var(--amber-line)"></i>잔여 밴드</span>
+          <span><i class="swatch" style="background:var(--red);border-color:var(--red-line)"></i>절단 자투리</span>
+          <span><i class="swatch" style="background:var(--violet);border-color:var(--violet-line)"></i>양끝면 기본 격자</span>
+        </div>
+        <div id="svgWrap"></div>
+      </div>
+    </section>
+
+    <!-- 5. 구역별 상세 -->
+    <section id="sec-zones">
+      <div class="sec-head"><span class="sec-num">5</span><h2>구역별 수량 상세</h2></div>
+      <p class="sec-sub">색상은 요약 막대와 동일합니다. ‘배치 보기’를 누르면 해당 구역 도면으로 이동합니다.</p>
+      <details class="audit" id="zonesDetails">
+        <summary>구역별 수량 상세 펼쳐보기 <small>구역 카드 + 계획표</small></summary>
+        <div class="zone-grid" id="zoneGrid"></div>
+        <div class="table-wrap">
+          <table id="planTable">
+            <thead>
+              <tr><th>구역</th><th>배치 방식</th><th class="num">수량</th><th class="num">실제 피복㎡</th><th class="num">패널㎡</th><th>계산 · 비고</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <!-- 6. 비교 -->
+    <section id="sec-compare">
+      <div class="sec-head"><span class="sec-num">6</span><h2>비교</h2></div>
+      <p class="sec-sub">방향을 바꾸면 얼마나 달라지는지, 다른 케이스는 몇 장인지 한 번에 봅니다.</p>
+
+      <details class="audit" id="compareDetails">
+        <summary>비교표 펼쳐보기 <small>면별 방향 비교 + A/B/C 전체 비교</small></summary>
+
+        <div class="card" style="margin-top:14px">
+          <h3>천장 전개 계산 <span class="muted small">(현재 케이스)</span></h3>
+          <p class="comparison-note" id="orientationNote">-</p>
+          <div class="table-wrap">
+            <table id="orientationTable">
+              <thead><tr><th>항목</th><th class="num">수량</th><th>방식</th><th class="num">비교</th><th>비고</th><th class="num">적용</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>선택 기준별 · A/B/C 전체 비교</h3>
+          <p class="comparison-note">양끝면 ‘최소 재단’은 케이스별 재단 검토 수량입니다. 현재 화면 기준 행은 파란색입니다.</p>
+          <div class="table-wrap">
+            <table id="scenarioTable">
+              <thead id="scenarioHead"></thead>
+              <tbody id="scenarioBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- 7. 검산 -->
+    <section id="sec-audit">
+      <div class="sec-head"><span class="sec-num">7</span><h2>공식 · 검산</h2></div>
+      <p class="sec-sub">모든 수량의 중간 계산을 공식 그대로 펼쳐 확인할 수 있습니다.</p>
+      <details class="audit" id="auditDetails">
+        <summary>공식 및 중간 계산 전체 보기 <small>검산용 · 6개 블록</small></summary>
+        <div id="auditCalc">-</div>
+      </details>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="inner">
+    <b>계산 전제</b>
+    <ul>
+      <li>패널은 1800×600mm(1.08㎡) 고정이며 사용자가 수정하지 않습니다.</li>
+      <li>바닥면은 덮지 않습니다. 바닥으로 내려가는 잔여분은 잘라내는 것으로 간주합니다.</li>
+      <li>지붕은 높은 지붕 → 단차 수직면 → 낮은 지붕을 한 장으로 이어 덮는 드레이프가 기본입니다.</li>
+      <li>겹침·이음 여유는 포함하지 않으며, 발주 여유율(0~10%)로 보정합니다.</li>
+      <li>양끝면 ‘최소 재단’은 면적 하한에 맞춘 빡빡한 재단안으로, 현장 재단성 확인이 필요합니다.</li>
+    </ul>
+  </div>
+</footer>
+
+<script src="js/01-core.js"></script>
+<script src="js/02-calc.js"></script>
+<script src="js/03-render.js"></script>
+<script src="js/04-visual.js"></script>
+<script src="js/05-visual3d.js"></script>
+<script src="js/06-main.js"></script>
+</body>
+</html>
