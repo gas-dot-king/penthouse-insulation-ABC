@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════════════════════
    상수 · 케이스 데이터 · 화면 상태 · 공통 유틸.
-   가장 먼저 로드됩니다. 케이스 치수·양끝면 장수는 이 파일의 CASES 배열에서 수정하세요.
+   가장 먼저 로드됩니다. 케이스 치수·단면 구간·양끝면 장수는 이 파일의 CASES 배열에서 수정하세요.
    ══════════════════════════════════════════════════════════════ */
 
 /* ═══════════════ 고정값 · 케이스 데이터 ═══════════════ */
@@ -14,29 +14,47 @@ const CASES = [
   {
     id:"caseA",
     name:"케이스 A",
-    subtitle:"폭 7,053 × 길이 26,327.3",
-    L:26327.3, totalW:7053, highW:5078.6, highH:4170, lowH:2766,
-    highSide:"left",
-    endMinPerFace:26, endPracticalPerFace:26,
-    endNote:"기존 검토안 기준 26장/면을 최소 실무안으로 둡니다."
+    L:26327.3,
+    shape:{
+      schemaVersion:1, type:"stepped-profile", startSide:"left",
+      startRunLabel:"높은 벽 직하강", profileRunLabel:"지붕→낮은 벽",
+      sections:[
+        {id:"high",label:"높은 구간",roofLabel:"높은 지붕",wallLabel:"높은 벽",width:5078.6,height:4170},
+        {id:"low",label:"낮은 구간",roofLabel:"낮은 지붕",wallLabel:"낮은 벽",width:1974.4,height:2766}
+      ]
+    },
+    reviewedEnd:{geometrySignature:"5078.6x4170|1974.4x2766",minPerFace:26,practicalPerFace:26,
+      note:"기존 검토안 기준 26장/면을 최소 실무안으로 둡니다."}
   },
   {
     id:"caseB",
     name:"케이스 B",
-    subtitle:"폭 4,572 × 길이 26,370.4",
-    L:26370.4, totalW:4572, highW:1836, highH:5749, lowH:3820,
-    highSide:"right",
-    endMinPerFace:20, endPracticalPerFace:21,
-    endNote:"면적 하한은 20장/면이며, 하부 17장 + 상부 주면 3장 + 잔여 활용으로 가능한 빡빡한 재단안입니다. 실무 여유는 21장/면입니다."
+    L:26370.4,
+    shape:{
+      schemaVersion:1, type:"stepped-profile", startSide:"right",
+      startRunLabel:"높은 벽 직하강", profileRunLabel:"지붕→낮은 벽",
+      sections:[
+        {id:"high",label:"높은 구간",roofLabel:"높은 지붕",wallLabel:"높은 벽",width:1836,height:5749},
+        {id:"low",label:"낮은 구간",roofLabel:"낮은 지붕",wallLabel:"낮은 벽",width:2736,height:3820}
+      ]
+    },
+    reviewedEnd:{geometrySignature:"1836x5749|2736x3820",minPerFace:20,practicalPerFace:21,
+      note:"면적 하한은 20장/면이며, 하부 17장 + 상부 주면 3장 + 잔여 활용으로 가능한 빡빡한 재단안입니다. 실무 여유는 21장/면입니다."}
   },
   {
     id:"caseC",
     name:"케이스 C",
-    subtitle:"폭 3,274.2 × 길이 26,316.8",
-    L:26316.8, totalW:3274.2, highW:1660, highH:5749, lowH:2020,
-    highSide:"right",
-    endMinPerFace:12, endPracticalPerFace:13,
-    endNote:"면적 하한은 12장/면입니다. 높은 구간 1660×5749에서 460폭 절단 후 남는 140폭 스트립과 낮은 구간의 185.8폭 잔재를 밴드에 활용하는 빡빡한 재단안입니다. 실무 여유는 13장/면입니다."
+    L:26316.8,
+    shape:{
+      schemaVersion:1, type:"stepped-profile", startSide:"right",
+      startRunLabel:"높은 벽 직하강", profileRunLabel:"지붕→낮은 벽",
+      sections:[
+        {id:"high",label:"높은 구간",roofLabel:"높은 지붕",wallLabel:"높은 벽",width:1660,height:5749},
+        {id:"low",label:"낮은 구간",roofLabel:"낮은 지붕",wallLabel:"낮은 벽",width:1614.2,height:2020}
+      ]
+    },
+    reviewedEnd:{geometrySignature:"1660x5749|1614.2x2020",minPerFace:12,practicalPerFace:13,
+      note:"면적 하한은 12장/면입니다. 높은 구간 1660×5749에서 460폭 절단 후 남는 140폭 스트립과 낮은 구간의 185.8폭 잔재를 밴드에 활용하는 빡빡한 재단안입니다. 실무 여유는 13장/면입니다."}
   }
 ];
 
@@ -49,7 +67,7 @@ const ZONES = {
   ends:{name:"양끝면", color:"var(--z-ends)", ink:"#fff"}
 };
 
-let selectedCaseId = "caseA";
+let selectedCaseId = CASES[0]?.id || "";
 let endMode = "min";
 let view = "walls";   /* 기본 탭: 3D 덮기 */
 let buffer = 5;
@@ -63,7 +81,7 @@ function byId(id){return document.getElementById(id);}
 function setText(id,value){byId(id).textContent=value;}
 function setHTML(id,value){byId(id).innerHTML=value;}
 function qsa(selector,root=document){return [...root.querySelectorAll(selector)];}
-function currentCase(){return CASES.find(c=>c.id===selectedCaseId);}
+function currentCase(){return CASES.find(c=>c.id===selectedCaseId)||CASES[0];}
 function sqm(mm2){return mm2/1e6;}
 function panelArea(sheets){return sheets*TILE_AREA;}
 function orderSheets(sheets,pct=buffer){return ceil(sheets*(1+pct/100));}

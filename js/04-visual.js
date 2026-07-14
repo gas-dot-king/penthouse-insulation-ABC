@@ -1,7 +1,7 @@
 /* ══════════════════════════════════════════════════════════════
    SVG 도면 그리기.
-   전체 3면도 · 지붕 · 벽체 · 양끝면 · 막대 비교 탭.
-   01-core.js, 02-calc.js 필요.
+   전체 브리핑 · 외피 전개 · 양끝면 · 3D 탭.
+   01-core.js, 01-geometry.js, 02-calc.js 필요.
    ══════════════════════════════════════════════════════════════ */
 
 /* ═══════════════ SVG 시각화 ═══════════════ */
@@ -41,7 +41,8 @@ function setSvg(parts){
   setHTML("svgWrap",parts.join(""));
 }
 
-function drawSummary(x){
+/* 아래 legacyDraw*는 이전 분리 도면 참고용이며 현재 draw()에서는 호출하지 않는다. */
+function legacyDrawSummary(x){
   const d=x.d, f=x.chosenFold;
   setVisualHead("전체","윗면·정면·옆면을 분리하고, 각 칸이 1800×600 보온재 1장의 어느 방향인지 표시했습니다.");
   const W=1180,H=940;
@@ -162,7 +163,7 @@ function drawSummary(x){
   setSvg(s);
 }
 
-function drawRoof(x){
+function legacyDrawRoof(x){
   const d=x.d, f=x.chosenFold;
   setVisualHead("지붕",`1장은 길이방향 600mm, 지붕 전개방향 1800mm로 놓습니다. 남는 ${fmt(d.fold,1)}mm는 ${f.target==="low"?"낮은 벽":"높은 벽"}으로 접습니다.`);
   const W=1180,H=680, x0=90,y0=105,w=950,h=360;
@@ -197,7 +198,7 @@ function drawRoof(x){
   setSvg(s);
 }
 
-function drawWalls(x){
+function legacyDrawWalls(x){
   const d=x.d, f=x.chosenFold;
   setVisualHead("벽체","벽 패널은 위에서부터 세로 600×1800으로 붙이고, 남는 띠(주황)는 아래(바닥)쪽에 둡니다. 지붕이 ㄴ자로 접혀 내려오는 벽(초록 띠)은 그 접힘 아래 지점부터 벽 패널을 시작합니다. 남는 띠는 가로 눕힘 vs 스트립 재단 중 적은 쪽 자동 선택.");
   const W=1180,H=760;
@@ -256,7 +257,7 @@ function drawWalls(x){
   setSvg(s);
 }
 
-function drawEnds(x){
+function legacyDrawEnds(x){
   const d=x.d;
   setVisualHead("양끝면",`패널은 위(지붕선)에서부터 세로 600×1800으로 붙이고, 딱 안 떨어지는 자투리는 아래(바닥)쪽에 남겨 바닥선에서 재단합니다. 가로 배치·절단 잔재를 섞는 ${endMode==="min"?"최소 재단":"실무 여유"}안이며, 도면과 같은 방향(높은 쪽 ${d.highSide==="left"?"왼쪽":"오른쪽"})으로 표시합니다.`);
   const W=1180,H=700;
@@ -316,7 +317,7 @@ function drawEnds(x){
   setSvg(s);
 }
 
-function drawCompareVisual(x){
+function legacyDrawCompareVisual(x){
   const d=x.d, f=x.chosenFold;
   setVisualHead("비교","접힘 양안과 가로 고정·세로 고정·혼합 배치의 장수를 같은 축에서 비교합니다.");
   const W=1180,H=780;
@@ -371,14 +372,20 @@ function shellSegmentsWithPos(sh){
 
 function drawShellBand(s,x,box){
   const d=x.d, sh=x.shell, {x0,y0,w,h}=box;
-  const gap=box.gap ?? 34, runChrome=52, footer=58;
-  const availableH=Math.max(80,h-gap-runChrome*2-footer);
-  const scale=Math.min(w/d.L,availableH/(sh.highRun.width+sh.roofLowRun.width));
-  const highBoxH=sh.highRun.width*scale+54;
-  const lowBoxH=sh.roofLowRun.width*scale+54;
-  drawRunBand(s,d,sh.highRun,{x0,y0,w,h:highBoxH},scale);
-  drawRunBand(s,d,sh.roofLowRun,{x0,y0:y0+highBoxH+gap,w,h:lowBoxH},scale);
-  s.push(`<text class="mut" x="${x0+w/2}" y="${y0+h-30}" text-anchor="middle">두 방향 모두 길이 ${fmt(d.L,1)}mm · 600폭 ${d.lenCols600}열 반복</text>`);
+  const runs=(sh.runs||[]).filter(Boolean);
+  if(!runs.length) return;
+  const gap=box.gap ?? 34, runChrome=54, footer=58;
+  const gapTotal=gap*Math.max(0,runs.length-1);
+  const availableH=Math.max(40,h-gapTotal-runChrome*runs.length-footer);
+  const totalRunWidth=runs.reduce((sum,run)=>sum+run.width,0);
+  const scale=Math.min(w/d.L,availableH/Math.max(1,totalRunWidth));
+  let runY=y0;
+  runs.forEach((run,index)=>{
+    const runBoxH=run.width*scale+runChrome;
+    drawRunBand(s,d,run,{x0,y0:runY,w,h:runBoxH},scale);
+    runY+=runBoxH+(index<runs.length-1?gap:0);
+  });
+  s.push(`<text class="mut" x="${x0+w/2}" y="${y0+h-30}" text-anchor="middle">모든 전개 방향의 길이 ${fmt(d.L,1)}mm · 600폭 ${d.lenCols600}열 반복</text>`);
   s.push(`<text class="mut" x="${x0+w/2}" y="${y0+h-12}" text-anchor="middle">이 도면은 x/y 동일 스케일입니다. 본판 1칸은 실제 비율 600×1800(1:3)으로 표시됩니다.</text>`);
 }
 
@@ -433,41 +440,53 @@ function drawRunBand(s,d,run,box,scale){
 
 function drawEndBrief(s,x,box){
   const d=x.d, {x0,y0,w,h}=box;
-  const sc=Math.min((w-60)/d.totalW,(h-80)/d.highH);
-  const tw=d.totalW*sc, hh=d.highH*sc;
+  const shape=d.shape;
+  const sc=Math.min((w-60)/shape.totalW,(h-80)/shape.maxHeight);
+  const tw=shape.totalW*sc, hh=shape.maxHeight*sc;
   const ex=x0+(w-tw)/2, ey=y0+22;
   const g=endFaceGeo(d,ex,ey,sc);
-  s.push(`<path d="${g.path}" fill="#ede9fe" stroke="#111" stroke-width="2"/>`);
-  s.push(`<line x1="${g.boundaryX}" y1="${ey+g.st}" x2="${g.boundaryX}" y2="${ey+hh}" stroke="#111" stroke-width="1.4" opacity=".7"/>`);
-  for(let xx=600;xx<d.totalW;xx+=600) s.push(`<line x1="${ex+xx*sc}" y1="${ey}" x2="${ex+xx*sc}" y2="${ey+hh}" stroke="#7c3aed" opacity=".35"/>`);
+  const clipId=`endBrief-${d.id}`;
   const floorY=ey+hh;
-  [[g.highX,g.hw,d.highH],[g.lowX,g.lw,d.lowH]].forEach(seg=>{
-    const [sx,sw,hm]=seg, topY=floorY-hm*sc, rows=floor(hm/TILE_L);
-    for(let r=1;r<=rows;r++){
-      const yy=topY+r*TILE_L*sc;
-      s.push(`<line x1="${sx}" y1="${yy}" x2="${sx+sw}" y2="${yy}" stroke="#7c3aed" opacity=".35"/>`);
-    }
-  });
-  s.push(`<text class="txt big" x="${x0+20}" y="${y0+h-42}">ㄴ자 1면 ${fmt(x.endAreaOne,2)}㎡ · 하한 ${ceil(x.endAreaOne/TILE_AREA)}장 · 적용 ${x.endPerFace}장</text>`);
-  s.push(`<text class="mut" x="${x0+20}" y="${y0+h-20}">앞면/뒷면 2면 = ${x.endSheets}장 · ${endMode==="min"?"최소 재단":"실무 여유"} 기준</text>`);
+  const bandH=Math.min(TILE_S,shape.minHeight), bandTop=floorY-bandH*sc;
+  s.push(`<clipPath id="${clipId}"><path d="${g.path}"/></clipPath>`);
+  s.push(`<path d="${g.path}" fill="#ede9fe" stroke="#111" stroke-width="2"/>`);
+  s.push(`<g clip-path="url(#${clipId})">`);
+  for(let at=TILE_S;at<shape.totalW-1;at+=TILE_S){
+    const xx=g.sx(at);
+    s.push(`<line x1="${xx}" y1="${ey}" x2="${xx}" y2="${bandTop}" stroke="#7c3aed" opacity=".35"/>`);
+  }
+  for(let at=bandH+TILE_L;at<shape.maxHeight-1;at+=TILE_L){
+    const yy=floorY-at*sc;
+    s.push(`<line x1="${ex}" y1="${yy}" x2="${ex+tw}" y2="${yy}" stroke="#7c3aed" opacity=".35"/>`);
+  }
+  s.push(`<rect x="${ex}" y="${bandTop}" width="${tw}" height="${bandH*sc}" fill="#ffedd5" opacity=".95"/>`);
+  for(let at=TILE_L;at<shape.totalW-1;at+=TILE_L){
+    const xx=g.sx(at);
+    s.push(`<line x1="${xx}" y1="${bandTop}" x2="${xx}" y2="${floorY}" stroke="#f97316" opacity=".6"/>`);
+  }
+  s.push(`<line x1="${ex}" y1="${bandTop}" x2="${ex+tw}" y2="${bandTop}" stroke="#c2410c" stroke-dasharray="5 4" opacity=".75"/>`);
+  s.push(`</g><path d="${g.path}" fill="none" stroke="#111" stroke-width="2"/>`);
+  s.push(`<text class="txt big" x="${x0+20}" y="${y0+h-42}">계단 단면 1면 ${fmt(x.endAreaOne,2)}㎡ · 하한 ${ceil(x.endAreaOne/TILE_AREA)}장 · 적용 ${x.endPerFace}장</text>`);
+  s.push(`<text class="mut" x="${x0+20}" y="${y0+h-20}">앞면/뒷면 2면 = ${x.endSheets}장 · ${x.endCountSource==="manual"?"검토된 혼합 수량":"고정 격자 자동값"} · ${endMode==="min"?"최소 재단":"실무 여유"} 기준</text>`);
 }
 
 function drawSummary(x){
   const d=x.d, sh=x.shell;
-  setVisualHead("전체",`높은 벽 위 모서리에서 양방향으로 내려갑니다. 높은 벽 직하강 ${fmt(sh.highRun.width,1)}mm, 지붕·낮은 벽 하강 ${fmt(sh.roofLowRun.width,1)}mm.`);
+  const runSummary=sh.runs.map(run=>`${run.name} ${fmt(run.width,1)}mm`).join(" · ");
+  setVisualHead("전체",`설정한 계단 단면에서 외피 전개 방향을 자동 생성합니다. ${runSummary}.`);
   const W=1180,H=1280;
   let s=[svgStart(`${d.name} 보온재 덮기 브리핑`, `총 ${x.totalSheets}장 = 긴 외피 ${x.shellSheets} + 양끝 ${x.endSheets}`, W,H)];
   s.push(`<rect class="viewcard" x="35" y="75" width="1110" height="930" rx="14"/>`);
-  s.push(`<text class="txt big" x="60" y="108">① 천장 전개도</text>`);
-  s.push(`<text class="mut" x="245" y="107">높은 벽 위 기준: 한쪽은 높은 벽 바닥, 반대쪽은 지붕·단차·낮은 벽 바닥</text>`);
+  s.push(`<text class="txt big" x="60" y="108">① 긴 외피 전개도</text>`);
+  s.push(`<text class="mut" x="245" y="107">시작 외벽과 지붕·모든 단차·반대편 외벽을 형상 데이터에서 연속 생성</text>`);
   s.push(`<rect class="badge" x="980" y="90" width="130" height="28" rx="14"/><text class="badgeTxt" x="1045" y="109" text-anchor="middle">외피 ${x.shellSheets}장</text>`);
   drawShellBand(s,x,{x0:60,y0:145,w:1060,h:800,gap:96});
   s.push(`<text class="txt" x="60" y="980" font-weight="800">본판 ${sh.mainSheets}장 · 잔여띠 ${sh.sheets-sh.mainSheets}장 · 외피 합계 ${sh.sheets}장</text>`);
   s.push(`<rect class="viewcard" x="35" y="1035" width="1110" height="190" rx="14"/>`);
-  s.push(`<text class="txt big" x="60" y="1068">② 양끝 ㄴ자면 · 앞면/뒷면</text>`);
+  s.push(`<text class="txt big" x="60" y="1068">② 양끝 계단 단면 · 앞면/뒷면</text>`);
   drawEndBrief(s,x,{x0:650,y0:1054,w:450,h:140});
-  s.push(`<text class="txt" x="60" y="1104" font-weight="800">이미지의 front view는 양끝 ㄴ자면입니다.</text>`);
-  s.push(`<text class="mut" x="60" y="1130">앞면과 뒷면 2개 면을 더하며, 가로/세로 배치 대안은 ‘양끝 L자면’ 탭에서 비교합니다.</text>`);
+  s.push(`<text class="txt" x="60" y="1104" font-weight="800">앞·뒤 끝면은 ${d.shape.sections.length}개 구간을 합친 하나의 단면입니다.</text>`);
+  s.push(`<text class="mut" x="60" y="1130">앞면과 뒷면 2개 면을 더하며, 가로/세로 배치 대안은 ‘양끝 단면’ 탭에서 비교합니다.</text>`);
   s.push(`<text class="txt big" x="60" y="1174">${x.endPerFace}장/면 × 2면 = ${x.endSheets}장</text>`);
   s.push(`</svg>`);
   setSvg(s);
@@ -475,9 +494,9 @@ function drawSummary(x){
 
 function drawRoof(x){
   const d=x.d, sh=x.shell;
-  setVisualHead("천장 전개",`높은 벽 위에서 양방향으로 나눠 전개하고, 각 방향의 바닥 잔여띠를 따로 계산합니다.`);
+  setVisualHead("외피 전개",`${d.shape.sections.length}개 단면 구간에서 생성한 ${sh.runs.length}개 전개 방향과 각 방향의 잔여띠를 따로 계산합니다.`);
   const W=1180,H=920;
-  let s=[svgStart("천장 전개 배치", `${fmt(sh.width,1)}mm = ${sh.segments.map(v=>v.label).join(" + ")}`, W,H)];
+  let s=[svgStart("외피 전개 배치", `${fmt(sh.width,1)}mm = ${sh.runs.map(v=>`${v.name} ${fmt(v.width,1)}`).join(" + ")}`, W,H)];
   drawShellBand(s,x,{x0:60,y0:105,w:1060,h:650});
   s.push(`<rect class="tile" x="70" y="815" width="96" height="32"/><text class="txt" x="182" y="837" font-weight="800">본판 1칸 = 600(길이) × 1800(전개)</text>`);
   s.push(`<rect class="band" x="520" y="815" width="96" height="32"/><text class="txt" x="632" y="837" font-weight="800">바닥 잔여띠 = 각 방향별 최적 선택</text>`);
@@ -486,127 +505,116 @@ function drawRoof(x){
   setSvg(s);
 }
 
-function drawWalls(x){
-  const d=x.d;
-  setVisualHead("정면 ㄴ자",`앞면과 뒷면은 도면의 ㄴ자 그대로 채웁니다. 적용 수량은 ${x.endPerFace}장/면입니다.`);
-  const W=1180,H=650;
-  let s=[svgStart("정면 ㄴ자 면 채움", `${d.name} · 높은 쪽 ${d.highSide==="left"?"왼쪽":"오른쪽"} · ${x.endPerFace}장/면`, W,H)];
-  drawEndBrief(s,x,{x0:100,y0:95,w:980,h:440});
-  s.push(`<text class="txt" x="120" y="585" font-weight="800">최소 재단은 면적 하한에 가까운 빡빡한 패킹입니다. 실무 여유 기준은 상단 토글에서 확인합니다.</text>`);
-  s.push(`</svg>`);
-  setSvg(s);
-}
-
-function drawCompareVisual(x){
-  const d=x.d, legacy=x.legacyLongSheets+x.endSheets;
-  setVisualHead("비교",`새 기준은 긴 외피 전개식입니다. 이전 지붕/벽 분리식은 참고용으로 함께 표시합니다.`);
-  const W=1180,H=560;
-  let s=[svgStart("계산 기준 비교", `현재 ${x.totalSheets}장 · 이전 분리식 ${legacy}장`, W,H)];
-  const rows=[
-    ["긴 외피 전개식",x.totalSheets,"fold",`외피 ${x.shellSheets} + 양끝 ${x.endSheets}`],
-    ["이전 지붕/벽 분리식",legacy,"tile",`지붕 ${x.roofSheets} + 벽 ${x.chosenFold.wallSheets} + 양끝 ${x.endSheets}`],
-    ["양끝 제외 외피만",x.shellSheets,"band",`본판 ${x.shell.mainSheets} + 잔여띠 ${x.shell.sheets-x.shell.mainSheets}`]
-  ];
-  const max=Math.max(...rows.map(r=>r[1]));
-  rows.forEach((r,i)=>{
-    const y=130+i*95, w=780*r[1]/max;
-    s.push(`<text class="txt" x="85" y="${y+23}" font-weight="800">${r[0]}</text>`);
-    s.push(`<rect class="${r[2]}" x="320" y="${y}" width="${w}" height="34" rx="5"/>`);
-    s.push(`<text class="txt" x="${330+w}" y="${y+23}" font-weight="800">${r[1]}장</text>`);
-    s.push(`<text class="mut" x="320" y="${y+58}">${r[3]}</text>`);
-  });
-  s.push(`<text class="txt" x="85" y="465" font-weight="800">정면 ㄴ자면은 현재 ${x.endPerFace}장/면, 2면 ${x.endSheets}장을 더합니다.</text>`);
-  s.push(`</svg>`);
-  setSvg(s);
-}
-
 /* (기존의 사선 투영 3D 보조도는 05-visual3d.js 의 캔버스 입체 뷰로 대체됨) */
 
-function drawEndHorizontalOption(s,x,box,scale){
-  const d=x.d, bridge=x.endHorizontal, {x0,y0,w,h}=box;
-  const tw=d.totalW*scale, hh=d.highH*scale;
-  const ex=x0+(w-tw)/2, ey=y0+86;
-  const g=endFaceGeo(d,ex,ey,scale);
-  const clipId=`endH${d.id}`;
-  const floorY=ey+hh, lowTop=floorY-d.lowH*scale;
-  s.push(`<text class="txt big" x="${x0+18}" y="${y0+30}">가로로 쭉 잇기</text>`);
-  s.push(`<text class="mut" x="${x0+18}" y="${y0+52}">낮은 높이까지 전체 폭을 가로 밴드로 지나가고, 높은 쪽 상부만 추가</text>`);
-  s.push(`<clipPath id="${clipId}"><path d="${g.path}"/></clipPath>`);
-  s.push(`<path d="${g.path}" fill="#fff" stroke="#111827" stroke-width="2"/>`);
-  s.push(`<g clip-path="url(#${clipId})">`);
-  for(let r=0;r<bridge.fullWidthRows;r++){
-    const yy=floorY-(r+1)*TILE_S*scale;
-    s.push(`<rect class="band" x="${ex}" y="${yy}" width="${tw}" height="${TILE_S*scale}" opacity=".74"/>`);
-  }
-  for(let c=1;c<bridge.fullWidthCols;c++){
-    const xx=ex+c*TILE_L*scale;
-    s.push(`<line x1="${xx}" y1="${lowTop}" x2="${xx}" y2="${floorY}" stroke="#f97316" opacity=".72"/>`);
-  }
-  for(let r=0;r<bridge.highOnlyRows;r++){
-    const yy=lowTop-(r+1)*TILE_S*scale;
-    s.push(`<rect class="tile" x="${g.highX}" y="${yy}" width="${g.hw}" height="${TILE_S*scale}" opacity=".70"/>`);
-  }
-  for(let c=1;c<bridge.highOnlyCols;c++){
-    const xx=g.highX+c*TILE_L*scale;
-    s.push(`<line x1="${xx}" y1="${ey}" x2="${xx}" y2="${lowTop}" stroke="#2563eb" opacity=".66"/>`);
-  }
-  s.push(`</g><path d="${g.path}" fill="none" stroke="#111827" stroke-width="2"/>`);
-  s.push(`<line x1="${g.boundaryX}" y1="${ey+g.st}" x2="${g.boundaryX}" y2="${ey+hh}" stroke="#111827" stroke-width="1.4" opacity=".7"/>`);
-  s.push(`<line class="dim" x1="${ex}" y1="${ey+hh+22}" x2="${ex+tw}" y2="${ey+hh+22}"/><text class="mut" x="${ex+tw/2}" y="${ey+hh+40}" text-anchor="middle">전체 폭 ${fmt(d.totalW,1)}mm</text>`);
-  s.push(`<text class="txt" x="${x0+18}" y="${y0+h-78}" font-weight="800">${bridge.perFace}장/면 · 2면 ${bridge.sheets}장</text>`);
-  s.push(`<text class="mut" x="${x0+18}" y="${y0+h-54}">하부 전체폭 ${bridge.fullWidthRows}단 × ${bridge.fullWidthCols}열 = ${bridge.fullWidthSheets}장/면</text>`);
-  s.push(`<text class="mut" x="${x0+18}" y="${y0+h-34}">높은 쪽 상부 ${bridge.highOnlyRows}단 × ${bridge.highOnlyCols}열 = ${bridge.highOnlySheets}장/면</text>`);
+function endGridX(d,ex,tw,at,scale){
+  return d.shape.startSide==="right" ? ex+tw-at*scale : ex+at*scale;
 }
 
-function drawEndVerticalOption(s,x,box,scale){
-  const d=x.d, plan=x.endVertical, {x0,y0,w,h}=box;
-  const tw=d.totalW*scale, hh=d.highH*scale;
-  const ex=x0+(w-tw)/2, ey=y0+86;
+function drawEndFixedOption(s,x,box,plan,scale,copy={}){
+  const d=x.d, {x0,y0,w,h}=box;
+  const shape=d.shape;
+  const tw=shape.totalW*scale, hh=shape.maxHeight*scale;
+  const ex=x0+(w-tw)/2, ey=y0+86, floorY=ey+hh;
   const g=endFaceGeo(d,ex,ey,scale);
-  const clipId=`endV${d.id}`;
-  const floorY=ey+hh;
-  s.push(`<text class="txt big" x="${x0+18}" y="${y0+30}">세로로 나눠 붙이기</text>`);
-  s.push(`<text class="mut" x="${x0+18}" y="${y0+52}">높은 직사각형과 낮은 직사각형을 각각 600×1800 세로판으로 채움</text>`);
+  const horizontal=plan.id==="horizontal";
+  const clipId=`end-${plan.id}-${d.id}-${Math.round(x0)}`;
+  const title=copy.title||(horizontal?"가로로 연속 덮기":"세로로 연속 덮기");
+  const sub=copy.sub||(horizontal?"바닥 기준 600행 · 단면 전체 공통 격자":"시작 외벽 기준 600열 · 구간 경계에서 끊지 않음");
+  const fill=horizontal?"#ffedd5":"#dbeafe";
+  const stroke=horizontal?"#f97316":"#2563eb";
+  s.push(`<text class="txt big" x="${x0+16}" y="${y0+30}">${title}</text>`);
+  s.push(`<text class="mut" x="${x0+16}" y="${y0+52}">${sub}</text>`);
   s.push(`<clipPath id="${clipId}"><path d="${g.path}"/></clipPath>`);
   s.push(`<path d="${g.path}" fill="#fff" stroke="#111827" stroke-width="2"/>`);
   s.push(`<g clip-path="url(#${clipId})">`);
-  const segments=[
-    {x:g.highX,w:g.hw,h:d.highH,cols:plan.high.cols,rows:plan.high.rows,stroke:"#2563eb",fill:"tile"},
-    {x:g.lowX,w:g.lw,h:d.lowH,cols:plan.low.cols,rows:plan.low.rows,stroke:"#f97316",fill:"band"}
-  ];
-  segments.forEach(seg=>{
-    const top=floorY-seg.h*scale;
-    s.push(`<rect class="${seg.fill}" x="${seg.x}" y="${top}" width="${seg.w}" height="${seg.h*scale}" opacity=".68"/>`);
-    for(let c=1;c<seg.cols;c++){
-      const xx=seg.x+c*TILE_S*scale;
-      s.push(`<line x1="${xx}" y1="${top}" x2="${xx}" y2="${floorY}" stroke="${seg.stroke}" opacity=".70"/>`);
+  s.push(`<rect x="${ex}" y="${ey}" width="${tw}" height="${hh}" fill="${fill}" opacity=".82"/>`);
+  if(horizontal){
+    for(let r=1;r<plan.allRows;r++){
+      const yy=floorY-r*TILE_S*scale;
+      s.push(`<line x1="${ex}" y1="${yy}" x2="${ex+tw}" y2="${yy}" stroke="${stroke}" stroke-width="1.2" opacity=".78"/>`);
     }
-    for(let r=1;r<seg.rows;r++){
-      const yy=top+r*TILE_L*scale;
-      s.push(`<line x1="${seg.x}" y1="${yy}" x2="${seg.x+seg.w}" y2="${yy}" stroke="${seg.stroke}" opacity=".70"/>`);
+    for(let at=TILE_L;at<shape.totalW-1;at+=TILE_L){
+      const xx=endGridX(d,ex,tw,at,scale);
+      s.push(`<line x1="${xx}" y1="${ey}" x2="${xx}" y2="${floorY}" stroke="${stroke}" stroke-width="1.2" opacity=".78"/>`);
     }
-  });
+  }else{
+    for(let at=TILE_S;at<shape.totalW-1;at+=TILE_S){
+      const xx=endGridX(d,ex,tw,at,scale);
+      s.push(`<line x1="${xx}" y1="${ey}" x2="${xx}" y2="${floorY}" stroke="${stroke}" stroke-width="1.1" opacity=".72"/>`);
+    }
+    for(let at=TILE_L;at<shape.maxHeight-1;at+=TILE_L){
+      const yy=floorY-at*scale;
+      s.push(`<line x1="${ex}" y1="${yy}" x2="${ex+tw}" y2="${yy}" stroke="${stroke}" stroke-width="1.3" opacity=".82"/>`);
+    }
+  }
   s.push(`</g><path d="${g.path}" fill="none" stroke="#111827" stroke-width="2"/>`);
-  s.push(`<line x1="${g.boundaryX}" y1="${ey+g.st}" x2="${g.boundaryX}" y2="${ey+hh}" stroke="#111827" stroke-width="1.4" opacity=".7"/>`);
-  s.push(`<line class="dim" x1="${ex}" y1="${ey+hh+22}" x2="${ex+tw}" y2="${ey+hh+22}"/><text class="mut" x="${ex+tw/2}" y="${ey+hh+40}" text-anchor="middle">전체 폭 ${fmt(d.totalW,1)}mm</text>`);
-  s.push(`<text class="txt" x="${x0+18}" y="${y0+h-78}" font-weight="800">${plan.perFace}장/면 · 2면 ${plan.sheets}장</text>`);
-  s.push(`<text class="mut" x="${x0+18}" y="${y0+h-54}">높은 구간 ${plan.high.cols}열 × ${plan.high.rows}단 = ${plan.high.sheets}장/면</text>`);
-  s.push(`<text class="mut" x="${x0+18}" y="${y0+h-34}">낮은 구간 ${plan.low.cols}열 × ${plan.low.rows}단 = ${plan.low.sheets}장/면</text>`);
+  s.push(`<line class="dim" x1="${ex}" y1="${floorY+20}" x2="${ex+tw}" y2="${floorY+20}"/><text class="mut" x="${ex+tw/2}" y="${floorY+38}" text-anchor="middle">전체 폭 ${fmt(shape.totalW,1)}mm · ${shape.sections.length}개 구간 통합</text>`);
+  s.push(`<text class="txt" x="${x0+16}" y="${y0+h-76}" font-weight="800">${copy.resultLabel||"고정 격자"} ${plan.perFace}장/면 · 2면 ${plan.sheets}장</text>`);
+  s.push(`<text class="mut" x="${x0+16}" y="${y0+h-52}">${plan.summary}</text>`);
+  s.push(`<text class="mut" x="${x0+16}" y="${y0+h-32}">면적 ${fmt(plan.actualPerFace,2)}㎡ · 판넬 ${fmt(plan.panelPerFace,2)}㎡ · 여유 ${fmt(plan.wastePerFace,2)}㎡/면</text>`);
+}
+
+function drawEndMixedOption(s,x,box,scale){
+  const d=x.d, {x0,y0,w,h}=box;
+  if(x.endCountSource!=="manual"){
+    const automatic=x.endHorizontal.perFace<=x.endVertical.perFace?x.endHorizontal:x.endVertical;
+    const orientation=automatic.id==="horizontal"?"가로":"세로";
+    return drawEndFixedOption(s,x,box,automatic,scale,{
+      title:`자동 대체 · ${orientation} 격자`,
+      sub:"검토 서명이 없거나 형상이 바뀌어 적은 고정 격자를 적용",
+      resultLabel:"자동 적용"
+    });
+  }
+  const shape=d.shape;
+  const tw=shape.totalW*scale, hh=shape.maxHeight*scale;
+  const ex=x0+(w-tw)/2, ey=y0+86, floorY=ey+hh;
+  const g=endFaceGeo(d,ex,ey,scale);
+  const clipId=`end-mixed-${d.id}`;
+  const bandH=Math.min(TILE_S,shape.minHeight);
+  const bandTop=floorY-bandH*scale;
+  s.push(`<text class="txt big" x="${x0+16}" y="${y0+30}">가로·세로 혼합 재단</text>`);
+  s.push(`<text class="mut" x="${x0+16}" y="${y0+52}">검토된 세로 본판 + 가로 밴드 + 절단 잔재 조합</text>`);
+  s.push(`<clipPath id="${clipId}"><path d="${g.path}"/></clipPath>`);
+  s.push(`<path d="${g.path}" fill="#fff" stroke="#111827" stroke-width="2"/>`);
+  s.push(`<g clip-path="url(#${clipId})">`);
+  s.push(`<rect x="${ex}" y="${ey}" width="${tw}" height="${Math.max(0,bandTop-ey)}" fill="#ede9fe" opacity=".9"/>`);
+  for(let at=TILE_S;at<shape.totalW-1;at+=TILE_S){
+    const xx=endGridX(d,ex,tw,at,scale);
+    s.push(`<line x1="${xx}" y1="${ey}" x2="${xx}" y2="${bandTop}" stroke="#7c3aed" opacity=".62"/>`);
+  }
+  for(let at=bandH+TILE_L;at<shape.maxHeight-1;at+=TILE_L){
+    const yy=floorY-at*scale;
+    s.push(`<line x1="${ex}" y1="${yy}" x2="${ex+tw}" y2="${yy}" stroke="#7c3aed" stroke-width="1.3" opacity=".74"/>`);
+  }
+  s.push(`<rect x="${ex}" y="${bandTop}" width="${tw}" height="${bandH*scale}" fill="#ffedd5" opacity=".92"/>`);
+  for(let at=TILE_L;at<shape.totalW-1;at+=TILE_L){
+    const xx=endGridX(d,ex,tw,at,scale);
+    s.push(`<line x1="${xx}" y1="${bandTop}" x2="${xx}" y2="${floorY}" stroke="#f97316" stroke-width="1.2" opacity=".78"/>`);
+  }
+  s.push(`<line x1="${ex}" y1="${bandTop}" x2="${ex+tw}" y2="${bandTop}" stroke="#c2410c" stroke-width="1.4" stroke-dasharray="7 5"/>`);
+  s.push(`</g><path d="${g.path}" fill="none" stroke="#111827" stroke-width="2"/>`);
+  s.push(`<line class="dim" x1="${ex}" y1="${floorY+20}" x2="${ex+tw}" y2="${floorY+20}"/><text class="mut" x="${ex+tw/2}" y="${floorY+38}" text-anchor="middle">전체 폭 ${fmt(shape.totalW,1)}mm · ${shape.sections.length}개 구간 통합</text>`);
+  s.push(`<text class="txt" x="${x0+16}" y="${y0+h-76}" font-weight="800">검토 적용 ${x.endPerFace}장/면 · 2면 ${x.endSheets}장</text>`);
+  s.push(`<text class="mut" x="${x0+16}" y="${y0+h-52}">보라: 세로 본판 · 주황: 가로/절단 잔여띠 · 형상 서명 일치</text>`);
+  s.push(`<text class="mut" x="${x0+16}" y="${y0+h-32}">※ 방향 개념도이며 개별 재단 조각의 1:1 도면은 아님</text>`);
 }
 
 function drawEnds(x){
   const d=x.d, h=x.endHorizontal, v=x.endVertical;
-  setVisualHead("양끝 L자면",`이미지의 front view에 해당하는 끝 단면입니다. 가로 브리지와 세로 분할을 같은 스케일로 비교합니다.`);
-  const W=1180,H=760;
-  let s=[svgStart("양끝 L자면 · 가로/세로 배치 비교", `현재 적용 ${x.endPerFace}장/면 · 가로 ${h.perFace}장/면 · 세로 ${v.perFace}장/면`, W,H)];
-  s.push(`<rect class="viewcard" x="35" y="75" width="535" height="590" rx="14"/>`);
-  s.push(`<rect class="viewcard" x="610" y="75" width="535" height="590" rx="14"/>`);
-  const scale=Math.min(410/d.totalW,300/d.highH);
-  drawEndHorizontalOption(s,x,{x0:55,y0:92,w:495,h:545},scale);
-  drawEndVerticalOption(s,x,{x0:630,y0:92,w:495,h:545},scale);
+  const sourceLabel=x.endCountSource==="manual"?"검토된 혼합":"자동 고정 격자";
+  setVisualHead("양끝 단면",`${d.shape.sections.length}개 구간을 하나의 계단 단면으로 합쳐 가로·세로·혼합(또는 자동 대체) 배치를 같은 스케일로 비교합니다.`);
+  const W=1180,H=790;
+  let s=[svgStart("양끝 계단 단면 · 통합 면 3가지 배치", `가로 ${h.perFace}장/면 · 세로 ${v.perFace}장/면 · ${sourceLabel} ${x.endPerFace}장/면`, W,H)];
+  const cards=[25,407,789];
+  cards.forEach((cx,i)=>s.push(`<rect class="viewcard" x="${cx}" y="75" width="366" height="620" rx="14"${i===0?' stroke="#7c3aed" stroke-width="2"':''}/>`));
+  const scale=Math.min(300/d.shape.totalW,260/d.shape.maxHeight);
+  drawEndMixedOption(s,x,{x0:33,y0:92,w:350,h:580},scale);
+  drawEndFixedOption(s,x,{x0:415,y0:92,w:350,h:580},h,scale);
+  drawEndFixedOption(s,x,{x0:797,y0:92,w:350,h:580},v,scale);
   const best=Math.min(h.perFace,v.perFace,x.endPerFace);
-  s.push(`<rect class="badge" x="55" y="690" width="1070" height="34" rx="17"/>`);
-  s.push(`<text class="badgeTxt" x="590" y="712" text-anchor="middle">현재 하드코딩 적용 ${x.endPerFace}장/면 · 가로 ${h.perFace}장/면 · 세로 ${v.perFace}장/면 · 수량 최소 ${best}장/면</text>`);
+  s.push(`<rect class="badge" x="55" y="720" width="1070" height="38" rx="19"/>`);
+  s.push(`<text class="badgeTxt" x="590" y="744" text-anchor="middle">1면 기준 · ${sourceLabel} ${x.endPerFace}장 · 가로 ${h.perFace}장 · 세로 ${v.perFace}장 · 표시안 중 최소 ${best}장</text>`);
   s.push(`</svg>`);
   setSvg(s);
 }
