@@ -26,6 +26,18 @@ assert.deepEqual(JSON.parse(JSON.stringify(golden)),[
   {id:"caseC",total:386,runs:[141,221],endH:14,endV:18,endApplied:12,endSource:"manual"}
 ]);
 
+const endWidthFits=evaluate(`(()=>{
+  const x=calc(CASES[0]),h=x.endHorizontal.widthFit,v=x.endVertical.widthFit;
+  return {
+    horizontal:{exact:Number(h.exact.toFixed(6)),cols:h.cols,lastUsed:h.lastUsed,offcut:h.offcut},
+    vertical:{exact:Number(v.exact.toFixed(6)),cols:v.cols,lastUsed:v.lastUsed,offcut:v.offcut}
+  };
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(endWidthFits)),{
+  horizontal:{exact:3.918333,cols:4,lastUsed:1653,offcut:147},
+  vertical:{exact:11.755,cols:12,lastUsed:453,offcut:147}
+});
+
 const multi=evaluate(`(()=>{
   const c={id:"synthetic-4",name:"4단 상승·하강",L:10000,shape:{
     schemaVersion:1,type:"stepped-profile",startSide:"left",

@@ -1,16 +1,16 @@
 /* ══════════════════════════════════════════════════════════════
    3D 덮기 뷰 — 캔버스 입체 도면.
    정규화된 계단형 단면을 길이 방향으로 압출해 3D로 그리고, 보온재가
-   두 외피 run과 양끝 단면을 덮는 순서를 보여줍니다.
+   두 전용 메뉴에서 외피 run 또는 양끝 단면만 따로 보여줍니다.
    01-core / 02-calc / 03-render(bandCompareLabel)가 먼저 로드돼야 하며,
-   04-visual.js 의 draw()가 view==="walls"일 때 draw3D()를 부릅니다.
+   04-visual.js 의 draw()가 shell3d/ends3d일 때 draw3D()를 부릅니다.
    ══════════════════════════════════════════════════════════════ */
 
 const V3D={
   x:null, model:null,
   yaw:2.18, pitch:0.42, zoom:1, presetId:"iso",
-  step:4, playing:false, playT:0, lastTs:0, playStep:1, uiKey:"",
-  endLayout:"mixed",
+  step:0, playing:false, playT:0, lastTs:0, playStep:1, uiKey:"",
+  scope:"shell", endLayout:"mixed",
   runOrientation:{high:"vertical",drape:"vertical"},
   bandMode:{high:"auto",drape:"auto"},
   autoPlayed:false, raf:0, canvas:null, ctx:null, ro:null,
@@ -18,7 +18,7 @@ const V3D={
 };
 const V3D_SPEED=2000;   /* 재생 속도: 초당 전개 mm */
 const V3D_GAP=0.6;      /* 재생 시 단계 사이 멈춤(초) */
-const V3D_STEPS=["구조만","① 시작 외벽","② 반대 방향 외피","③ 잔여 폭","④ 양끝면"];
+const V3D_STEPS=["구조만","① 높은 벽","② 지붕→낮은 벽","③ 잔여 폭"];
 const V3D_FONT="'Segoe UI','Noto Sans KR',Arial,sans-serif";
 const V3D_END_LAYOUTS=[
   {id:"mixed", label:"가로+세로 혼합"},
@@ -55,8 +55,9 @@ function v3dRunPlan(m,key,orientation=V3D.runOrientation[key],bandMode=V3D.bandM
 function v3dRunPlans(m){ return {high:v3dRunPlan(m,"high"),drape:v3dRunPlan(m,"drape")}; }
 
 function v3dScenarioTotal(m){
+  if(V3D.scope==="ends") return v3dEndPlan(m).sheets;
   const p=v3dRunPlans(m);
-  return p.high.sheets+p.drape.sheets+v3dEndPlan(m).sheets;
+  return p.high.sheets+p.drape.sheets;
 }
 
 function v3dMm(n,digits){
@@ -125,38 +126,53 @@ function v3dPlayState(m){
   const phases=[
     {step:1, dur:Math.max(.25,hp.mainCovered/V3D_SPEED), set:f=>{cov.high=hp.mainCovered*f;}},
     {step:2, dur:Math.max(.25,dp.mainCovered/V3D_SPEED), set:f=>{cov.drape=dp.mainCovered*f;}},
-    {step:3, dur:2.0, set:f=>{cov.high=hp.mainCovered+(hp.width-hp.mainCovered)*f; cov.drape=dp.mainCovered+(dp.width-dp.mainCovered)*f;}},
-    {step:4, dur:1.6, set:f=>{cov.ends=f;}}
+    {step:3, dur:2.0, set:f=>{cov.high=hp.mainCovered+(hp.width-hp.mainCovered)*f; cov.drape=dp.mainCovered+(dp.width-dp.mainCovered)*f;}}
   ];
   for(const p of phases){
     if(t>=p.dur+V3D_GAP){ p.set(1); t-=p.dur+V3D_GAP; }
     else { p.set(Math.min(1,t/p.dur)); return {cov, step:p.step, done:false}; }
   }
-  return {cov, step:4, done:t>0.4};
+  return {cov, step:3, done:t>0.4};
 }
 
 function v3dCoverage(m){
+  if(V3D.scope==="ends") return {high:0,drape:0,ends:1};
   if(V3D.playing) return v3dPlayState(m).cov;
   const s=V3D.step;
   const p=v3dRunPlans(m);
   return {
     high:  s>=3 ? p.high.width  : (s>=1 ? p.high.mainCovered  : 0),
     drape: s>=3 ? p.drape.width : (s>=2 ? p.drape.mainCovered : 0),
-    ends:  s>=4 ? 1 : 0
+    ends: 0
   };
 }
 
 function v3dEffStep(){ return V3D.playing ? V3D.playStep : V3D.step; }
 
 /* ═══════════════ 진입점 (04-visual draw()에서 호출) ═══════════════ */
-function draw3D(x){
-  setVisualHead("3D 덮기","설정된 계단형 단면의 모든 지붕·단차·외벽을 3D로 만들고, 두 외피 run과 잔여띠·양끝면 배치를 비교합니다.");
+function draw3D(x,scope="shell"){
+  const nextScope=scope==="ends"?"ends":"shell";
+  const scopeChanged=V3D.scope!==nextScope;
+  V3D.scope=nextScope;
+  setVisualHead(
+    nextScope==="ends"?"3D 양끝면":"3D 높은 벽 → 지붕 → 낮은 벽",
+    nextScope==="ends"
+      ?"앞·뒤 양끝 계단 단면만 확대해 3D 패널로 보여줍니다. 폭·높이 치수와 끝판 절단 여유는 구조물 바깥에만 표시합니다."
+      :"높은 벽에서 시작해 지붕·단차를 접어 낮은 벽까지 덮는 긴 외피만 3D로 보여줍니다. 양끝면은 별도 3D 메뉴에서 검토합니다."
+  );
   V3D.x=x;
   V3D.model=v3dModel(x);
   const fresh=v3dEnsureDom();
-  if(V3D.presetId) v3dApplyPreset(V3D.presetId);
+  if(scopeChanged){
+    v3dStop();
+    V3D.step=nextScope==="ends"?1:0;
+    V3D.zoom=1;
+    V3D.uiKey="";
+    v3dApplyPreset(nextScope==="ends"?"front":"iso");
+  }else if(V3D.presetId) v3dApplyPreset(V3D.presetId);
+  v3dSyncScopeDom();
   V3D.uiKey="";
-  if(fresh&&!V3D.autoPlayed){ V3D.autoPlayed=true; V3D.step=0; v3dPlay(); return; }
+  if(fresh&&nextScope==="shell"&&!V3D.autoPlayed){ V3D.autoPlayed=true; V3D.step=0; v3dPlay(); return; }
   if(V3D.playing) v3dStop();
   v3dSyncUI();
   v3dRepaint();
@@ -190,6 +206,10 @@ function v3dScenarioCardHTML(key,title,sub){
 
 function v3dDimensionsHTML(m){
   const d=m.d;
+  const endsOnly=V3D.scope==="ends";
+  const hFit=m.x.endHorizontal.widthFit;
+  const vFit=m.x.endVertical.widthFit;
+  const fitLine=fit=>`${v3dMm(fit.span)}mm ÷ ${v3dMm(fit.panelSpan)}mm = ${fmt(fit.exact,3)}장 → ${fit.cols}열 · 마지막 ${v3dMm(fit.lastUsed)}mm 사용 / ${v3dMm(fit.offcut)}mm 절단 자투리`;
   const chips=[
     ["길이 L",d.L],["전체 폭 W",d.shape.totalW],
     ...d.shape.sections.flatMap(s=>[[`${s.label} 폭`,s.width],[`${s.label} 높이`,s.height]]),
@@ -207,8 +227,20 @@ function v3dDimensionsHTML(m){
       <td>${q.shape.startSide==="left"?"왼쪽":"오른쪽"}</td>
     </tr>`;
   }).join("");
-  return `<div class="v3d-dim-head"><b>${esc(d.name)} 구조 치수</b><span>단위 mm · 캔버스 치수선과 같은 값</span></div>
+  const fitAudit=endsOnly
+    ?`<section class="v3d-fit-audit" aria-label="끝면 폭별 보온재 정확 수량">
+        <b>폭 방향 실제 끝판 계산 <small>면당 총 장수와는 별개인 ‘한 줄의 폭’ 계산입니다.</small></b>
+        <p><strong>가로 1,800mm 기준</strong> ${fitLine(hFit)}</p>
+        <p><strong>세로 600mm 기준</strong> ${fitLine(vFit)}</p>
+        <small>예: 가로 1,800mm 기준의 열 수는 폭을 덮는 열 개수입니다. 계단 형상 전체의 적용 수량은 아래 배치안의 ${v3dEndPlan(m).perFace}장/면을 따릅니다.</small>
+      </section>`
+    :`<section class="v3d-fit-audit v3d-fit-audit-shell" aria-label="외피와 양끝면 범위 안내">
+        <b>이 메뉴의 범위</b>
+        <p>높은 벽 → 지붕·단차 → 낮은 벽까지의 긴 외피만 포함합니다. 양끝 계단 단면 ${v3dEndPlan(m).sheets}장은 별도 ‘3D 양끝면’ 메뉴에서 배치와 절단 여유를 검토합니다.</p>
+      </section>`;
+  return `<div class="v3d-dim-head"><b>${esc(d.name)} 구조 치수</b><span>단위 mm · 모든 치수선과 설명은 구조물 바깥에만 배치</span></div>
     <div class="v3d-dim-grid">${chips}</div>
+    ${fitAudit}
     <div class="v3d-case-table-wrap">
       <table class="v3d-case-table">
         <caption class="sr-only">구조물 전체 단면 치수 비교</caption>
@@ -221,25 +253,26 @@ function v3dDimensionsHTML(m){
 function v3dEnsureDom(){
   if(byId("v3dCanvas")) return false;
   byId("svgWrap").innerHTML=`
-  <div class="v3d">
-    <div class="v3d-bar">
+  <div class="v3d" id="v3dRoot" data-scope="shell">
+    <div class="v3d-scope-intro" id="v3dScopeIntro"></div>
+    <div class="v3d-bar v3d-shell-only">
       <div class="seg" id="v3dSteps">${V3D_STEPS.map((t,i)=>`<button data-step="${i}">${t}</button>`).join("")}</div>
       <button class="v3d-play" id="v3dPlay">▶ 순서대로 재생</button>
       <div class="seg" id="v3dViews">${Object.entries(v3dPresets()).map(([id,p])=>`<button data-pv="${id}">${p.name}</button>`).join("")}</div>
     </div>
-    <div class="v3d-scenario-grid">
+    <div class="v3d-scenario-grid v3d-shell-only">
       ${v3dScenarioCardHTML("high","① 시작 외벽","시작 모서리 → 바닥")}
       ${v3dScenarioCardHTML("drape","② 반대 방향 외피","지붕·단차를 접어 반대 외벽 바닥까지")}
     </div>
-    <div class="v3d-endbar">
-      <b>양끝면 배치</b>
+    <div class="v3d-endbar v3d-ends-only">
+      <b>양끝면 배치 방향</b>
       <div class="seg" id="v3dEndLayouts">${V3D_END_LAYOUTS.map(p=>`<button data-end-layout="${p.id}">${p.label}</button>`).join("")}</div>
-      <span id="v3dEndStatus">내부 구분 없이 하나의 단면으로 덮기</span>
+      <span id="v3dEndStatus">앞·뒤 끝면을 같은 계단 단면으로 검토</span>
     </div>
     <output class="v3d-totalbar" id="v3dScenarioTotal" aria-live="polite"></output>
     <div class="v3d-stage" id="v3dStage">
       <canvas id="v3dCanvas"></canvas>
-      <div class="v3d-hint">드래그 회전 · 휠 확대/축소 · 더블클릭 시점 초기화</div>
+      <div class="v3d-hint" id="v3dHint">드래그 회전 · 휠 확대/축소 · 더블클릭 시점 초기화</div>
     </div>
     <section class="v3d-dim-panel" id="v3dDimensions" aria-label="구조 치수"></section>
     <div class="v3d-info" id="v3dInfo"></div>
@@ -295,15 +328,32 @@ function v3dEnsureDom(){
   cv.addEventListener("pointercancel",up);
   cv.addEventListener("wheel",e=>{
     e.preventDefault();
-    V3D.zoom=Math.min(4,Math.max(0.35,V3D.zoom*Math.exp(-e.deltaY*0.0012)));
+    const minZoom=V3D.scope==="ends"?.75:.35;
+    const maxZoom=V3D.scope==="ends"?1.18:4;
+    V3D.zoom=Math.min(maxZoom,Math.max(minZoom,V3D.zoom*Math.exp(-e.deltaY*0.0012)));
     if(!V3D.playing) v3dRepaint();
   },{passive:false});
-  cv.addEventListener("dblclick",()=>{ V3D.zoom=1; v3dApplyPreset("iso"); v3dSyncUI(); if(!V3D.playing) v3dRepaint(); });
+  cv.addEventListener("dblclick",()=>{ V3D.zoom=1; v3dApplyPreset(V3D.scope==="ends"?"front":"iso"); v3dSyncUI(); if(!V3D.playing) v3dRepaint(); });
 
   if(V3D.ro) V3D.ro.disconnect();
   V3D.ro=new ResizeObserver(()=>{ if(byId("v3dCanvas")===cv) v3dRepaint(); });
   V3D.ro.observe(byId("v3dStage"));
   return true;
+}
+
+function v3dSyncScopeDom(){
+  const root=byId("v3dRoot");
+  if(!root) return;
+  const endsOnly=V3D.scope==="ends";
+  root.dataset.scope=endsOnly?"ends":"shell";
+  qsa(".v3d-shell-only",root).forEach(el=>{ el.hidden=endsOnly; });
+  qsa(".v3d-ends-only",root).forEach(el=>{ el.hidden=!endsOnly; });
+  if(byId("v3dScopeIntro")) setHTML("v3dScopeIntro",endsOnly
+    ?`<b>양끝면 전용 3D</b><span>앞·뒤 끝면만 확대합니다. 긴 외피는 그리지 않으며, 치수선·판 수·절단 자투리는 형상 바깥에서 읽습니다.</span>`
+    :`<b>긴 외피 전용 3D</b><span>높은 벽에서 지붕·단차를 거쳐 낮은 벽까지의 연속 외피만 표시합니다. 양끝면은 별도 메뉴로 분리했습니다.</span>`);
+  if(byId("v3dHint")) setText("v3dHint",endsOnly
+    ?"양끝 단면만 확대 · 휠 확대/축소 · 치수는 외곽 표기"
+    :"드래그 회전 · 휠 확대/축소 · 더블클릭 시점 초기화");
 }
 
 function v3dApplyPreset(id){
@@ -342,7 +392,7 @@ function v3dTick(ts){
   V3D.playT+=(ts-V3D.lastTs)/1000; V3D.lastTs=ts;
   const st=v3dPlayState(V3D.model);
   V3D.playStep=st.step;
-  if(st.done){ v3dStop(); V3D.step=4; }
+  if(st.done){ v3dStop(); V3D.step=3; }
   v3dSyncUI();
   v3dRepaint();
   if(V3D.playing) V3D.raf=requestAnimationFrame(v3dTick);
@@ -350,12 +400,12 @@ function v3dTick(ts){
 
 /* ═══════════════ 단계 정보 패널 ═══════════════ */
 function v3dCumSheets(m,step){
+  if(V3D.scope==="ends") return v3dEndPlan(m).sheets;
   const p=v3dRunPlans(m);
   let n=0;
   if(step>=1) n+=p.high.mainSheets;
   if(step>=2) n+=p.drape.mainSheets;
   if(step>=3) n+=p.high.bandSheets+p.drape.bandSheets;
-  if(step>=4) n+=v3dEndPlan(m).sheets;
   return n;
 }
 
@@ -379,18 +429,15 @@ function v3dRunStatusHTML(m,key,plan=v3dRunPlan(m,key)){
 }
 
 function v3dInfoHTML(m,step){
-  const x=m.x, d=m.d, plans=v3dRunPlans(m), hr=plans.high, dr=plans.drape;
+  if(V3D.scope==="ends") return v3dEndInfoHTML(m);
+  const d=m.d, plans=v3dRunPlans(m), hr=plans.high, dr=plans.drape;
   const runDefs=Object.fromEntries(d.shape.runs.map(r=>[r.key,r]));
   const startDef=runDefs.high, profileDef=runDefs.drape;
-  const ep=v3dEndPlan(m), scenarioTotal=v3dScenarioTotal(m);
-  const endLayout=ep.renderId||ep.id;
+  const scenarioTotal=v3dScenarioTotal(m);
   const sectionText=d.shape.sections
     .map(s=>`${s.label} ${fmt(s.width,1)}×${fmt(s.height,1)}mm`)
     .join(" · ");
   const profileText=profileDef.segments.map(s=>`${s.label} ${fmt(s.size,1)}`).join(" → ");
-  const endExplain=ep.manual
-    ?`구간 사이 경계를 재단 경계로 보지 않고 하나의 계단형 단면에 세로 본판·가로 밴드·절단 잔재를 섞은 검토값입니다. ${ep.perFace}장/면 × 2면 = ${ep.sheets}장을 적용합니다. 그림은 방향 개념도이며 개별 절단 조각의 1:1 재단도는 아닙니다.`
-    :`하나의 계단형 단면에 ${endLayout==="horizontal"?"바닥 기준 600mm 가로행":"시작 외곽 기준 600mm 세로열"}을 연속 적용합니다. ${ep.perFace}장/면 × 2면 = ${ep.sheets}장입니다.${ep.fallback?" 형상과 수동 검토 서명이 달라 두 고정 격자 중 적은 안을 자동 적용했습니다.":""}`;
   const items=[
     {t:`${d.name} — 덮기 전 구조`,
      p:`길이 L ${fmt(d.L,1)} × 전체 폭 W ${fmt(d.totalW,1)}mm. ${sectionText}. 지붕·단차 경로 ${fmt(d.shape.roofPathLength,1)}mm, 마지막 외벽까지 포함한 반대 방향 run은 ${fmt(dr.width,1)}mm입니다.`},
@@ -399,19 +446,32 @@ function v3dInfoHTML(m,step){
     {t:`② ${profileDef.name} · ${v3dOrientationName(dr)} — ${fmt(dr.mainSheets)}장`,
      p:`${profileText} 순서로 모서리에서 접어 이어 덮습니다. 전개폭 ${fmt(dr.width,1)}mm 중 ${fmt(dr.mainCovered,1)}mm를 ${fmt(dr.runSpan)}mm 본판 ${dr.fullRows}단으로 덮고, 마지막 ${fmt(dr.rem,1)}mm는 아직 미덮임입니다. 길이 마지막 판은 ${fmt(dr.lengthLast,1)}mm 사용 / ${fmt(dr.lengthTrim,1)}mm 절단입니다.`},
     {t:`③ 잔여 폭 처리 — ${fmt(hr.bandSheets+dr.bandSheets)}장`,
-     p:`${startDef.name}은 ${v3dBandName(hr.band)} ${hr.bandSheets}장, ${profileDef.name}은 ${v3dBandName(dr.band)} ${dr.bandSheets}장입니다. 두 run 모두 적용 후 부족은 0mm입니다. 위 카드에서 자동·가로 밴드·세로 스트립을 바꾸면 장수와 절단 잔여가 즉시 바뀝니다.`},
-    {t:`④ 양끝 계단형 단면 · ${ep.label} — ${fmt(ep.sheets)}장`,
-     p:`${endExplain} 이 3D 선택안 합계: ${startDef.name} ${fmt(hr.sheets)} + ${profileDef.name} ${fmt(dr.sheets)} + 양끝 ${fmt(ep.sheets)} = ${fmt(scenarioTotal)}장. 상단 기본 총계는 현재 선택과 별도로 ${fmt(x.totalSheets)}장입니다.`}
+     p:`${startDef.name}은 ${v3dBandName(hr.band)} ${hr.bandSheets}장, ${profileDef.name}은 ${v3dBandName(dr.band)} ${dr.bandSheets}장입니다. 두 run 모두 적용 후 부족은 0mm입니다. 위 카드에서 자동·가로 밴드·세로 스트립을 바꾸면 장수와 절단 잔여가 즉시 바뀝니다. 이 메뉴 합계는 긴 외피 ${fmt(scenarioTotal)}장이고, 양끝면은 별도 3D 메뉴에서 검토합니다.`}
   ];
-  const it=items[Math.min(Math.max(step,0),4)];
+  const it=items[Math.min(Math.max(step,0),3)];
   const sum=step>0
     ?`<div class="sum">여기까지 ${fmt(v3dCumSheets(m,step))}장 / 이 배치 합계 ${fmt(scenarioTotal)}장${V3D.playing?" · 재생 중":""}</div>`
     :`<div class="sum">▶ 재생을 누르면 덮는 순서를 처음부터 보여줍니다.</div>`;
   return `<b class="t">${it.t}</b><p>${it.p}</p>${sum}`;
 }
 
+function v3dEndInfoHTML(m){
+  const ep=v3dEndPlan(m), h=m.x.endHorizontal.widthFit, v=m.x.endVertical.widthFit;
+  const layout=ep.renderId||ep.id;
+  const layoutName=layout==="horizontal"?"가로 1,800×600 격자":layout==="vertical"?"세로 600×1,800 격자":"가로·세로 혼합 개념";
+  const hText=`전체 W ${v3dMm(h.span)}mm ÷ ${v3dMm(h.panelSpan)}mm = ${fmt(h.exact,3)}장 → ${h.cols}열 · 마지막 열 ${v3dMm(h.lastUsed)}mm 사용 / ${v3dMm(h.offcut)}mm 절단 자투리`;
+  const vText=`세로 600mm 기준은 ${fmt(v.exact,3)}장 → ${v.cols}열 · 마지막 열 ${v3dMm(v.lastUsed)}mm 사용 / ${v3dMm(v.offcut)}mm 절단 자투리`;
+  const source=ep.manual
+    ?"현재 적용안은 형상 서명과 일치하는 혼합 재단 검토값입니다. 그림은 방향 개념도이며 개별 절단 조각의 1:1 재단도는 아닙니다."
+    :"수동 검토값이 없거나 형상이 달라져 가로·세로 고정 격자 중 적은 안을 자동 적용합니다.";
+  return `<b class="t">양끝 계단 단면 · ${layoutName}</b>
+    <p>앞·뒤는 같은 계단 단면입니다. ${ep.perFace}장/면 × 2면 = <strong>${ep.sheets}장</strong>입니다. <strong>가로 폭 기준:</strong> ${hText}. ${vText}. 이 ‘${h.cols}열’은 한 줄의 폭 방향 수량이며, 면당 ${ep.perFace}장이라는 전체 수량과 구분해 판단합니다. ${source}</p>
+    <div class="sum">가로 고정 ${m.x.endHorizontal.perFace}장/면 · 세로 고정 ${m.x.endVertical.perFace}장/면 · 현재 ${ep.short} ${ep.perFace}장/면</div>`;
+}
+
 function v3dSyncUI(){
   if(!byId("v3dSteps")||!V3D.model) return;
+  if(V3D.scope==="ends"){ v3dSyncEndUI(); return; }
   const eff=v3dEffStep();
   const runDefs=Object.fromEntries(V3D.model.d.shape.runs.map(r=>[r.key,r]));
   qsa("#v3dSteps button").forEach(b=>{
@@ -454,25 +514,9 @@ function v3dSyncUI(){
     setText(`v3dRunCount-${key}`,`${selected.sheets}장`);
     setHTML(`v3dRunStatus-${key}`,v3dRunStatusHTML(V3D.model,key,selected));
   });
-  if(byId("v3dEndLayouts")){
-    qsa("#v3dEndLayouts button").forEach(b=>{
-      const p=v3dEndPlan(V3D.model,b.dataset.endLayout);
-      const meta=V3D_END_LAYOUTS.find(v=>v.id===p.id);
-      b.textContent=`${p.fallback?p.short:(meta?meta.label:p.short)} ${p.perFace}장/면`;
-      b.classList.toggle("active",p.id===V3D.endLayout);
-      b.setAttribute("aria-pressed",String(p.id===V3D.endLayout));
-    });
-    const ep=v3dEndPlan(V3D.model);
-    const pending=eff<4?" · ④ 양끝면에서 표시":"";
-    setText("v3dEndStatus",(ep.manual
-      ?"현재 총계 적용안 · 검토된 혼합 방향 개념도(상세 재단도 아님)"
-      :ep.fallback?"형상 변경으로 수동 검토값 비활성 · 고정 격자 최소안 자동 적용"
-      :"통합 격자 비교안 · 화면 상단 총계에는 미반영")+pending);
-  }
   const shellSheets=plans.high.sheets+plans.drape.sheets;
-  const ep=v3dEndPlan(V3D.model), total=shellSheets+ep.sheets, delta=total-V3D.model.x.totalSheets;
-  setHTML("v3dScenarioTotal",`<small>선택 외피 ${shellSheets}장 (${plans.high.sheets} + ${plans.drape.sheets}) · 양끝 ${ep.sheets}장 · 상단 기본 총계 ${V3D.model.x.totalSheets}장 대비 ${delta===0?"차이 없음":`${delta>0?"+":""}${delta}장`}</small><strong>3D 선택안 ${total}장</strong>`);
-  const key=V3D.model.d.id+"|"+eff+"|"+V3D.model.d.shape.geometrySignature+"|"+V3D.endLayout+"|"+
+  setHTML("v3dScenarioTotal",`<small>선택 외피 ${shellSheets}장 (${plans.high.sheets} + ${plans.drape.sheets}) · 양끝면은 별도 3D 메뉴에서 검토</small><strong>긴 외피 ${shellSheets}장</strong>`);
+  const key="shell|"+V3D.model.d.id+"|"+eff+"|"+V3D.model.d.shape.geometrySignature+"|"+
     V3D.runOrientation.high+"|"+V3D.runOrientation.drape+"|"+
     V3D.bandMode.high+"|"+V3D.bandMode.drape+"|"+V3D.playing;
   if(key!==V3D.uiKey){
@@ -482,11 +526,175 @@ function v3dSyncUI(){
   }
 }
 
-/* ═══════════════ 그리기 ═══════════════ */
+function v3dSyncEndUI(){
+  const m=V3D.model, ep=v3dEndPlan(m);
+  qsa("#v3dEndLayouts button").forEach(b=>{
+    const p=v3dEndPlan(m,b.dataset.endLayout);
+    const meta=V3D_END_LAYOUTS.find(v=>v.id===p.id);
+    b.textContent=`${p.fallback?p.short:(meta?meta.label:p.short)} ${p.perFace}장/면`;
+    b.classList.toggle("active",p.id===V3D.endLayout);
+    b.setAttribute("aria-pressed",String(p.id===V3D.endLayout));
+  });
+  const h=m.x.endHorizontal.widthFit;
+  setText("v3dEndStatus",`${ep.manual?"검토된 혼합 적용안":"고정 격자 비교안"} · W ${v3dMm(h.span)} ÷ 1,800 = ${fmt(h.exact,3)}장 → ${h.cols}열 · 마지막 ${v3dMm(h.lastUsed)}mm / 자투리 ${v3dMm(h.offcut)}mm`);
+  setHTML("v3dScenarioTotal",`<small>앞·뒤 동일 계단 단면 · ${ep.perFace}장/면 × 2면 · 가로 고정 ${m.x.endHorizontal.perFace}장/면 · 세로 고정 ${m.x.endVertical.perFace}장/면</small><strong>양끝 ${ep.sheets}장</strong>`);
+  const key="ends|"+m.d.id+"|"+m.d.shape.geometrySignature+"|"+V3D.endLayout;
+  if(key!==V3D.uiKey){
+    V3D.uiKey=key;
+    setHTML("v3dInfo",v3dEndInfoHTML(m));
+    setHTML("v3dDimensions",v3dDimensionsHTML(m));
+  }
+}
+
+/* ═══════════════ 양끝면 전용 3D 그리기 ═══════════════ */
+function v3dRepaintEnds(){
+  const m=V3D.model, cv=V3D.canvas;
+  if(!m||!cv) return;
+  const ctx=V3D.ctx, dpr=window.devicePixelRatio||1;
+  const w=cv.clientWidth||10, h=cv.clientHeight||10;
+  const compact=w<640, stacked=compact;
+  const bw=Math.round(w*dpr), bh=Math.round(h*dpr);
+  if(cv.width!==bw||cv.height!==bh){ cv.width=bw; cv.height=bh; }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  const d=m.d, shape=d.shape, ep=v3dEndPlan(m), layoutId=ep.renderId||ep.id;
+  const hFit=m.x.endHorizontal.widthFit;
+  const gap=stacked?Math.max(104,76+shape.sections.length*20):Math.max(56,Math.min(110,w*.105));
+  const sideRail=stacked?120:145, rightRail=stacked?62:108;
+  const usableW=stacked?w-sideRail-rightRail:Math.max(80,w-sideRail-rightRail-gap);
+  const usableH=stacked?Math.max(80,h-78-gap-110):Math.max(100,h-210);
+  const scale=Math.max(.008,Math.min(
+    stacked?usableW/shape.totalW:usableW/(shape.totalW*2),
+    stacked?(usableH/(shape.maxHeight*2)):usableH/shape.maxHeight
+  )*V3D.zoom);
+  const panelW=shape.totalW*scale, panelH=shape.maxHeight*scale;
+  const firstX=stacked?(w-panelW)/2:sideRail+(usableW-panelW*2)/2;
+  const firstFloor=stacked?78+panelH:90+panelH;
+  const secondX=stacked?firstX:firstX+panelW+gap;
+  const secondFloor=stacked?firstFloor+panelH+gap:firstFloor;
+  const depthX=Math.max(9,Math.min(28,16+Math.abs(Math.sin(V3D.yaw))*12));
+  const depthY=-Math.max(7,Math.min(18,10+Math.abs(Math.cos(V3D.yaw))*8));
+  const mapZ=z=>shape.startSide==="right"?shape.totalW-z:z;
+
+  const line=(a,b,color="#64748b",width=1,dash=[])=>{
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]);
+    ctx.strokeStyle=color; ctx.lineWidth=width; ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  };
+  const path=(pts,close=true)=>{
+    ctx.beginPath(); pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); if(close) ctx.closePath();
+  };
+  const label=(x,y,text,o={})=>{
+    const size=o.size||(compact?9.5:11.5), pad=o.pad===undefined?5:o.pad;
+    ctx.font=`${o.weight||700} ${size}px ${V3D_FONT}`;
+    const tw=ctx.measureText(text).width, th=size+pad*2;
+    const align=o.align||"center";
+    const lx=align==="left"?x:align==="right"?x-tw-2*pad:x-tw/2-pad;
+    const ly=y-th/2;
+    ctx.fillStyle=o.bg||"rgba(255,255,255,.94)"; ctx.fillRect(lx,ly,tw+pad*2,th);
+    ctx.strokeStyle=o.border||"rgba(100,116,139,.4)"; ctx.lineWidth=.8; ctx.strokeRect(lx,ly,tw+pad*2,th);
+    ctx.fillStyle=o.color||"#334155"; ctx.textAlign="left"; ctx.textBaseline="middle";
+    ctx.fillText(text,lx+pad,y+.25);
+  };
+  const dim=(a,b,text,o={})=>{
+    line(a,b,o.color||"#475569",1.05);
+    const dx=b[0]-a[0], dy=b[1]-a[1], len=Math.hypot(dx,dy)||1;
+    const nx=-dy/len, ny=dx/len, tick=4;
+    line([a[0]-nx*tick,a[1]-ny*tick],[a[0]+nx*tick,a[1]+ny*tick],o.color||"#475569",1.15);
+    line([b[0]-nx*tick,b[1]-ny*tick],[b[0]+nx*tick,b[1]+ny*tick],o.color||"#475569",1.15);
+    label((a[0]+b[0])/2+(o.dx||0),(a[1]+b[1])/2+(o.dy||0),text,{size:o.size||10,color:o.color||"#334155"});
+  };
+
+  function drawPanel(x,floor,title,index){
+    const p=(z,y,back=false)=>[x+mapZ(z)*scale+(back?depthX:0),floor-y*scale+(back?depthY:0)];
+    const front=shape.endPolygon.map(v=>p(v[0],v[1]));
+    const back=shape.endPolygon.map(v=>p(v[0],v[1],true));
+    path(back); ctx.fillStyle="#dbe4f0"; ctx.fill(); ctx.strokeStyle="#94a3b8"; ctx.lineWidth=1; ctx.stroke();
+    for(let i=0;i<front.length;i++){
+      const j=(i+1)%front.length;
+      path([back[i],back[j],front[j],front[i]]);
+      ctx.fillStyle=i%2?"#cbd5e1":"#e2e8f0"; ctx.fill();
+    }
+    path(front); ctx.fillStyle=layoutId==="horizontal"?"#ffedd5":layoutId==="vertical"?"#dbeafe":"#ede9fe"; ctx.fill();
+    ctx.save(); path(front); ctx.clip();
+    const grid=(z0,y0,z1,y1,color,width=1,dash=[])=>line(p(z0,y0),p(z1,y1),color,width,dash);
+    if(layoutId==="horizontal"){
+      for(let y=TILE_S;y<shape.maxHeight-1;y+=TILE_S) grid(0,y,shape.totalW,y,"rgba(194,65,12,.58)",1);
+      for(let at=TILE_L;at<shape.totalW-1;at+=TILE_L) grid(at,0,at,shape.maxHeight,"rgba(194,65,12,.78)",1.2);
+    }else if(layoutId==="vertical"){
+      for(let at=TILE_S;at<shape.totalW-1;at+=TILE_S) grid(at,0,at,shape.maxHeight,"rgba(37,99,235,.58)",.95);
+      for(let y=TILE_L;y<shape.maxHeight-1;y+=TILE_L) grid(0,y,shape.totalW,y,"rgba(29,78,216,.8)",1.2);
+    }else{
+      const bandH=Math.min(TILE_S,shape.minHeight);
+      ctx.fillStyle="rgba(255,223,181,.9)"; ctx.fillRect(x,floor-bandH*scale,panelW,bandH*scale);
+      for(let at=TILE_S;at<shape.totalW-1;at+=TILE_S) grid(at,bandH,at,shape.maxHeight,"rgba(124,58,237,.56)",.9);
+      for(let y=bandH+TILE_L;y<shape.maxHeight-1;y+=TILE_L) grid(0,y,shape.totalW,y,"rgba(109,40,217,.75)",1.1);
+      for(let at=TILE_L;at<shape.totalW-1;at+=TILE_L) grid(at,0,at,bandH,"rgba(194,65,12,.82)",1.15);
+      grid(0,bandH,shape.totalW,bandH,"#c2410c",1.2,[6,4]);
+    }
+    /* 마지막 가로 1,800 폭은 절단되는 판이므로 옅게 강조한다. */
+    const lastStart=(hFit.cols-1)*TILE_L;
+    const z0=lastStart, z1=lastStart+TILE_L;
+    const a=p(z0,0), b=p(z1,shape.maxHeight);
+    ctx.fillStyle="rgba(251,191,36,.15)"; ctx.fillRect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]));
+    ctx.restore();
+    path(front); ctx.strokeStyle="#111827"; ctx.lineWidth=1.55; ctx.stroke();
+    ctx.font=`800 ${compact?10:12}px ${V3D_FONT}`; ctx.fillStyle="#111827"; ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+    ctx.fillText(title,x+panelW/2,floor-panelH-16);
+    ctx.font=`600 ${compact?8.5:10}px ${V3D_FONT}`; ctx.fillStyle="#64748b";
+    ctx.fillText(index===0?"치수 기준면":"동일 형상 · 같은 수량",x+panelW/2,floor-panelH-3);
+    return {p,x,floor};
+  }
+
+  const first=drawPanel(firstX,firstFloor,"앞쪽 양끝면",0);
+  drawPanel(secondX,secondFloor,"뒤쪽 양끝면",1);
+
+  /* 모든 치수선은 첫 번째 기준면의 외곽 레일에만 둔다. */
+  const xA=first.p(0,0)[0], xB=first.p(shape.totalW,0)[0];
+  const bottomY=first.floor+26;
+  line([xA,first.floor],[xA,bottomY],"rgba(71,85,105,.52)",.85,[3,3]);
+  line([xB,first.floor],[xB,bottomY],"rgba(71,85,105,.52)",.85,[3,3]);
+  dim([xA,bottomY],[xB,bottomY],`전체 W ${v3dMm(shape.totalW)}mm`,{dy:12,size:compact?8.5:10.5});
+  shape.sections.forEach((section,index)=>{
+    const a=first.p(section.start,0), b=first.p(section.end,0), y=bottomY+28+index*(compact?18:20);
+    line([a[0],first.floor],[a[0],y],"rgba(71,85,105,.38)",.75,[3,3]);
+    line([b[0],first.floor],[b[0],y],"rgba(71,85,105,.38)",.75,[3,3]);
+    dim([a[0],y],[b[0],y],`${section.label} W ${v3dMm(section.width)}mm`,{dy:10,size:compact?8:9.5,color:"#475569"});
+  });
+  shape.sections.forEach((section,index)=>{
+    const edgeA=first.p(section.start,0), edgeB=first.p(section.end,0);
+    const rightSide=(edgeA[0]+edgeB[0])/2>(xA+xB)/2;
+    const edge=rightSide?(edgeA[0]>edgeB[0]?section.start:section.end):(edgeA[0]<edgeB[0]?section.start:section.end);
+    const anchor=first.p(edge,0), top=first.p(edge,section.height);
+    const x=rightSide?Math.max(xA,xB)+26+index*(compact?42:54):Math.min(xA,xB)-26-index*(compact?42:54);
+    line([anchor[0],anchor[1]],[x,anchor[1]],"rgba(71,85,105,.42)",.75,[3,3]);
+    line([top[0],top[1]],[x,top[1]],"rgba(71,85,105,.42)",.75,[3,3]);
+    dim([x,anchor[1]],[x,top[1]],`${section.label} H ${v3dMm(section.height)}mm`,{dx:rightSide?(compact?34:42):-(compact?34:42),size:compact?8:9.5,color:"#475569"});
+  });
+  const noteLines=compact
+    ?[`가로 1,800 기준: W ${v3dMm(hFit.span)} ÷ 1,800 = ${fmt(hFit.exact,3)}장 → ${hFit.cols}열`,
+      `마지막 ${v3dMm(hFit.lastUsed)}mm 사용 / 자투리 ${v3dMm(hFit.offcut)}mm`]
+    :[`가로 1,800 기준: W ${v3dMm(hFit.span)} ÷ 1,800 = ${fmt(hFit.exact,3)}장 → ${hFit.cols}열 · 마지막 ${v3dMm(hFit.lastUsed)}mm 사용 / 자투리 ${v3dMm(hFit.offcut)}mm`];
+  const noteY=h-(compact?78:38), noteSize=compact?9.5:12, lineGap=compact?14:0;
+  ctx.font=`800 ${noteSize}px ${V3D_FONT}`;
+  const noteW=Math.min(w-20,Math.max(...noteLines.map(t=>ctx.measureText(t).width))+24);
+  const noteH=compact?42:32;
+  ctx.fillStyle="rgba(255,251,235,.97)"; ctx.fillRect((w-noteW)/2,noteY-noteH/2,noteW,noteH);
+  ctx.strokeStyle="#f59e0b"; ctx.lineWidth=1; ctx.strokeRect((w-noteW)/2,noteY-noteH/2,noteW,noteH);
+  ctx.fillStyle="#92400e"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  noteLines.forEach((note,index)=>ctx.fillText(note,w/2,noteY+(index-(noteLines.length-1)/2)*lineGap));
+  ctx.textAlign="left"; ctx.textBaseline="alphabetic"; ctx.font=`800 ${compact?11:14}px ${V3D_FONT}`; ctx.fillStyle="#111827";
+  ctx.fillText(`${d.name} · 양끝 계단 단면만 3D 확대`,16,25);
+  ctx.font=`600 ${compact?8.5:11}px ${V3D_FONT}`; ctx.fillStyle="#64748b";
+  ctx.fillText(`실제 두 끝면 사이 길이 L ${v3dMm(d.L)}mm · 선택 ${ep.short} ${ep.perFace}장/면 × 2 = ${ep.sheets}장`,16,43);
+}
+
+/* ═══════════════ 긴 외피 전용 3D 그리기 ═══════════════ */
 function v3dRepaint(){
   const m=V3D.model, cv=V3D.canvas;
   if(!m||!cv) return;
   if(!cv.isConnected){ v3dStop(); return; }
+  if(V3D.scope==="ends") return v3dRepaintEnds();
   const ctx=V3D.ctx, dpr=window.devicePixelRatio||1;
   const w=cv.clientWidth||10, h=cv.clientHeight||10;
   const compact=w<560;
@@ -644,16 +852,11 @@ function v3dRepaint(){
     poly(pts,null,"#111827",1.4);
   }
 
-  /* 화가 알고리즘: 먼 면부터 */
+  /* 화가 알고리즘: 긴 외피만(양끝면은 별도 3D 메뉴에서 전용으로 그림). */
   const items=[];
   m.faces.forEach(f=>{
     const c=rot(v3dFacePoint(f,f.uLen/2,f.vLen/2));
     items.push({z:c[2], draw:()=>drawRunFace(f)});
-  });
-  m.ends.forEach(e=>{
-    const zAvg=e.poly.reduce((s,p)=>s+p[0],0)/e.poly.length;
-    const yAvg=e.poly.reduce((s,p)=>s+p[1],0)/e.poly.length;
-    items.push({z:rot([e.x,yAvg,zAvg])[2], draw:()=>drawEndFace(e)});
   });
   items.sort((p,q)=>p.z-q.z).forEach(i=>i.draw());
 
@@ -779,19 +982,7 @@ function v3dRepaint(){
   }
   if(eff>=3){ bandLabel("high"); bandLabel("drape"); }
 
-  if(cov.ends>0.55){
-    const ep=v3dEndPlan(m);
-    const eSorted=m.ends.map(e=>({e,dep:rotN(e.n)})).sort((a,b)=>b.dep-a.dep)[0];
-    if(eSorted.dep>0.05){
-      const e=eSorted.e;
-      const zAvg=e.poly.reduce((s,p)=>s+p[0],0)/e.poly.length;
-      const yAvg=e.poly.reduce((s,p)=>s+p[1],0)/e.poly.length;
-      drawLabel([e.x,yAvg,zAvg],compact?`④ ${ep.short} ${fmt(ep.sheets)}장`:`④ ${ep.short} · ${ep.perFace}장/면 × 2 = ${fmt(ep.sheets)}장`,
-        {align:"center",color:"#6d28d9",size:compact?9.5:13,weight:800});
-    }
-  }
-
-  /* 실치수: 투영상 읽을 수 있는 선만 그리고, 모든 값은 아래 DOM 치수표에도 반복한다. */
+  /* 실치수: 구조 안에는 치수선을 두지 않고, 외곽 레일과 아래 치수표에만 표시한다. */
   drawDimension([0,0,m.W+dimOff],[m.L,0,m.W+dimOff],compact?`L ${v3dMm(d.L)}`:`길이 L ${v3dMm(d.L)}mm`,{
     extA:[0,0,m.W],extB:[m.L,0,m.W],labelOffset:13,minLength:58
   });
@@ -807,16 +998,20 @@ function v3dRepaint(){
         compact?`${index+1}W ${v3dMm(section.width)}`:`${section.label} W ${v3dMm(section.width)}mm`,{
           extA:[ex,section.height,section.start],extB:[ex,section.height,section.end],labelOffset:index%2?-11:11,minLength:18
         });
-      const mid=(section.start+section.end)/2;
-      drawDimension([ex,0,mid],[ex,section.height,mid],
+      const outsideZ=d.shape.startSide==="left"
+        ?-dimOff*(.48+index*.2)
+        :m.W+dimOff*(.48+index*.2);
+      drawDimension([ex,0,outsideZ],[ex,section.height,outsideZ],
         compact?`${index+1}H ${v3dMm(section.height)}`:`${section.label} H ${v3dMm(section.height)}mm`,{
-          labelOffset:index%2?-12:12,minLength:18
+          extA:[ex,0,section.start],extB:[ex,section.height,section.start],labelOffset:index%2?-12:12,minLength:18
         });
     });
     d.shape.stepSurfaces.forEach((surface,index)=>{
       const lo=Math.min(surface.y0,surface.y1), hi=Math.max(surface.y0,surface.y1);
-      const shift=(index%2?1:-1)*Math.min(dimOff*.24,Math.max(100,d.totalW*.025));
-      drawDimension([ex,lo,surface.z0+shift],[ex,hi,surface.z0+shift],
+      const outsideZ=d.shape.startSide==="left"
+        ?-dimOff*(.88+index*.16)
+        :m.W+dimOff*(.88+index*.16);
+      drawDimension([ex,lo,outsideZ],[ex,hi,outsideZ],
         compact?`Δ${index+1} ${v3dMm(surface.length)}`:`${surface.label} ${v3dMm(surface.length)}mm`,{
           extA:[ex,lo,surface.z0],extB:[ex,hi,surface.z0],labelOffset:index%2?12:-12,color:"#9a3412",minLength:12
         });
@@ -833,6 +1028,5 @@ function v3dRepaint(){
   ctx.fillText(cap,16,26,w-32);
   ctx.font=`600 11.5px ${V3D_FONT}`;
   ctx.fillStyle="#64748b";
-  const ep=v3dEndPlan(m);
-  ctx.fillText(`${d.name} · 단면 시작 ${d.shape.startSide==="left"?"왼쪽":"오른쪽"} · ${runDefs.high.shortName} ${v3dOrientationName(hr)} · ${runDefs.drape.shortName} ${v3dOrientationName(dr)} · 양끝 ${ep.short}`,16,44,w-32);
+  ctx.fillText(`${d.name} · 단면 시작 ${d.shape.startSide==="left"?"왼쪽":"오른쪽"} · ${runDefs.high.shortName} ${v3dOrientationName(hr)} · ${runDefs.drape.shortName} ${v3dOrientationName(dr)} · 양끝면 제외`,16,44,w-32);
 }

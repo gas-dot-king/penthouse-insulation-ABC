@@ -28,7 +28,8 @@ return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
 function draw(x){
   if(view==="summary") return drawSummary(x);
   if(view==="roof") return drawRoof(x);
-  if(view==="walls") return draw3D(x);   /* 3D 덮기 탭 — 05-visual3d.js */
+  if(view==="shell3d") return draw3D(x,"shell"); /* 높은 벽 → 지붕 → 낮은 벽 3D */
+  if(view==="ends3d") return draw3D(x,"ends");   /* 양끝면 전용 3D */
   if(view==="ends") return drawEnds(x);
   return drawSummary(x);
 }

@@ -11,6 +11,23 @@ function lengthMetrics(L, tile){
   return {cols, last, trim:Math.max(0,tile-last)};
 }
 
+/* 한 방향 길이를 보온재 한 변으로 나눴을 때의 실제 끝판 정보.
+   격자 칸 수만 표시하면 "4열"이 실제로는 얼마나 남는지 알기 어려워,
+   소수 장수·마지막 판 사용폭·절단 자투리를 함께 보관한다. */
+function panelSpanMetrics(span,panelSpan){
+  if(span<=0||panelSpan<=0) return {span,panelSpan,exact:0,cols:0,fullBeforeLast:0,lastUsed:0,offcut:0};
+  const cols=ceil(span/panelSpan);
+  const lastUsed=span-panelSpan*(cols-1);
+  return {
+    span,panelSpan,
+    exact:span/panelSpan,
+    cols,
+    fullBeforeLast:Math.max(0,cols-1),
+    lastUsed,
+    offcut:Math.max(0,cols*panelSpan-span)
+  };
+}
+
 function base(c){
   const shape=normalizeCaseShape(c);
   const L=shapeNumber(c.L,"L",c.name||c.id||"case");
@@ -269,10 +286,12 @@ function endHorizontalPlan(d){
   const perFace=occ.perFace;
   const actualPerFace=sqm(d.shape.endAreaMm2);
   const panelPerFace=panelArea(perFace);
+  const widthFit=panelSpanMetrics(d.shape.totalW,TILE_L);
   return {
     id:"horizontal", ori:"H", name:"통합 가로",
     tw:TILE_L, th:TILE_S,
     allRows:occ.rows, allCols:occ.cols, occupiedCells:occ.cells, rowOccupancy:occ.byRow,
+    widthFit,
     summary:`점유 격자 ${occ.cols}열 × ${occ.rows}행 중 ${perFace}칸`,
     perFace, sheets:perFace*2,
     actualPerFace, panelPerFace,
@@ -285,10 +304,12 @@ function endVerticalPlan(d){
   const perFace=occ.perFace;
   const actualPerFace=sqm(d.shape.endAreaMm2);
   const panelPerFace=panelArea(perFace);
+  const widthFit=panelSpanMetrics(d.shape.totalW,TILE_S);
   return {
     id:"vertical", ori:"V", name:"통합 세로",
     tw:TILE_S, th:TILE_L,
     allCols:occ.cols, allRows:occ.rows, occupiedCells:occ.cells, colOccupancy:occ.byCol,
+    widthFit,
     summary:`점유 격자 ${occ.cols}열 × ${occ.rows}단 중 ${perFace}칸`,
     perFace, sheets:perFace*2,
     actualPerFace, panelPerFace,

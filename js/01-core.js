@@ -69,7 +69,7 @@ const ZONES = {
 
 let selectedCaseId = CASES[0]?.id || "";
 let endMode = "min";
-let view = "walls";   /* 기본 탭: 3D 덮기 */
+let view = "shell3d"; /* 기본 탭: 높은 벽 → 지붕 → 낮은 벽 3D */
 let buffer = 5;
 
 /* ═══════════════ 유틸 ═══════════════ */
