@@ -45,7 +45,21 @@ const result=vm.runInContext(`(()=>{
   const aModel=v3dModel(calc(CASES[0]));
   const aEndCopy=v3dEndInfoHTML(aModel).includes("3.918장")&&
     v3dEndInfoHTML(aModel).includes("1,653mm")&&v3dEndInfoHTML(aModel).includes("147mm");
+  const aHorizontalWidthCut=v3dEndWidthCutGeometry(aModel.d.shape,aModel.x.endHorizontal.widthFit);
+  const aVerticalWidthCut=v3dEndWidthCutGeometry(aModel.d.shape,aModel.x.endVertical.widthFit);
+  const aWidthCutGeometry=aHorizontalWidthCut.lastStart===5400&&
+    aHorizontalWidthCut.actualEnd===7053&&aHorizontalWidthCut.panelEnd===7200&&aHorizontalWidthCut.offcut===147&&
+    aVerticalWidthCut.lastStart===6600&&aVerticalWidthCut.actualEnd===7053&&aVerticalWidthCut.panelEnd===7200&&aVerticalWidthCut.offcut===147;
   const aHighFit=aModel.x.endHorizontal.sectionHeightFits.find(v=>v.sectionId==="high");
+  const aHighSection=aModel.d.shape.sections.find(v=>v.id==="high");
+  const aLowSection=aModel.d.shape.sections.find(v=>v.id==="low");
+  const aLowFit=aModel.x.endHorizontal.sectionHeightFits.find(v=>v.sectionId==="low");
+  const aHighCutGeometry=v3dEndSectionCutGeometry(aModel.d.shape,aHighSection,aHighFit);
+  const aLowCutGeometry=v3dEndSectionCutGeometry(aModel.d.shape,aLowSection,aLowFit);
+  const aHeightCutGeometry=aHighCutGeometry.edgeZ===0&&aHighCutGeometry.actualHeight===4170&&
+    aHighCutGeometry.panelEnd===4200&&aHighCutGeometry.offcut===30&&
+    aLowCutGeometry.edgeZ===7053&&aLowCutGeometry.actualHeight===2766&&
+    aLowCutGeometry.panelEnd===3000&&aLowCutGeometry.offcut===234;
   const aHighCutCopy=endSectionCutAlertText(aHighFit).includes("6.950장")&&
     endSectionCutAlertText(aHighFit).includes("570.0mm")&&endSectionCutAlertText(aHighFit).includes("30.0mm");
   const a2d=[];
@@ -80,10 +94,21 @@ const result=vm.runInContext(`(()=>{
   V3D.model=aModel; V3D.x=aModel.x; V3D.endLayout="mixed"; V3D.scope="ends";
   V3D.yaw=2.18; V3D.pitch=.42;
   v3dRepaint();
-  const aMixed3dCutAlert=V3D.hotspots.some(v=>v.text.includes("높은 구간")&&v.text.includes("30.0mm"));
+  const aMixedComparisonAlerts=V3D.hotspots.some(v=>v.kind==="width-cut"&&v.orientation==="가로")&&
+    V3D.hotspots.some(v=>v.kind==="width-cut"&&v.orientation==="세로")&&
+    V3D.hotspots.some(v=>v.kind==="height-cut"&&v.sectionId==="high"&&v.orientation==="가로"&&v.text.includes("30.0mm"));
   V3D.endLayout="horizontal";
   v3dRepaint();
-  const a3dCutAlert=V3D.hotspots.some(v=>v.text.includes("높은 구간")&&v.text.includes("30.0mm"));
+  const a3dCutAlert=V3D.hotspots.some(v=>v.kind==="height-cut"&&v.sectionId==="high"&&
+    v.orientation==="가로"&&v.text.includes("30.0mm")&&v.text.includes("구조 내부 빈 공간이 아니라"));
+  const a3dWidthAlert=V3D.hotspots.some(v=>v.kind==="width-cut"&&v.orientation==="가로"&&
+    v.text.includes("1,653mm")&&v.text.includes("147mm")&&v.text.includes("구조 내부 빈 공간이 아니라"));
+  V3D.endLayout="vertical";
+  v3dRepaint();
+  const a3dVerticalCutAlert=V3D.hotspots.some(v=>v.kind==="height-cut"&&v.sectionId==="high"&&
+    v.orientation==="세로"&&v.text.includes("1,230.0mm"));
+  const a3dVerticalWidthAlert=V3D.hotspots.some(v=>v.kind==="width-cut"&&v.orientation==="세로"&&
+    v.text.includes("453mm")&&v.text.includes("147mm"));
   V3D.model=m; V3D.x=x; V3D.endLayout="mixed";
   V3D.scope="shell"; V3D.playing=false;
   V3D.step=1; const highOnly=v3dCoverage(m);
@@ -102,7 +127,7 @@ const result=vm.runInContext(`(()=>{
     infoHasProfile:info.includes("A 지붕→D 외벽"),
     endDimHasExactFit:endDim.includes("2.000장")&&endDim.includes("마지막 1,800mm 사용")&&endDim.includes("절단 자투리"),
     endInfoHasScope:endInfo.includes("양끝 계단 단면")&&endInfo.includes("한 줄의 폭 방향 수량"),
-    aEndCopy,aHighCutCopy,a2dCutAlert,aMixed3dCutAlert,a3dCutAlert,staticModesCorrect,
+    aEndCopy,aWidthCutGeometry,aHeightCutGeometry,aHighCutCopy,a2dCutAlert,aMixedComparisonAlerts,a3dCutAlert,a3dWidthAlert,a3dVerticalCutAlert,a3dVerticalWidthAlert,staticModesCorrect,
     endCanvasPainted,
     endRotates,
     endHoverHasWaste:endHover.includes("보온재 남는 면적")&&endHover.includes("끝단 절단폭"),
@@ -115,7 +140,7 @@ const result=vm.runInContext(`(()=>{
 assert.deepEqual(JSON.parse(JSON.stringify(result)),{
   faceCount:9,profileFaces:8,stepFaces:3,endPoints:10,uniqueKeys:9,finiteFaces:true,
   endId:"mixed",endRender:"horizontal",endFallback:true,shellScenario:130,endScenario:26,total:156,
-  dimHasSections:true,infoHasProfile:true,endDimHasExactFit:true,endInfoHasScope:true,aEndCopy:true,aHighCutCopy:true,a2dCutAlert:true,aMixed3dCutAlert:true,a3dCutAlert:true,staticModesCorrect:true,endCanvasPainted:true,endRotates:true,endHoverHasWaste:true,shellHoverHasWaste:true,shellCanvasPainted:true,visualClean:true,visualHasRise:true
+  dimHasSections:true,infoHasProfile:true,endDimHasExactFit:true,endInfoHasScope:true,aEndCopy:true,aWidthCutGeometry:true,aHeightCutGeometry:true,aHighCutCopy:true,a2dCutAlert:true,aMixedComparisonAlerts:true,a3dCutAlert:true,a3dWidthAlert:true,a3dVerticalCutAlert:true,a3dVerticalWidthAlert:true,staticModesCorrect:true,endCanvasPainted:true,endRotates:true,endHoverHasWaste:true,shellHoverHasWaste:true,shellCanvasPainted:true,visualClean:true,visualHasRise:true
 });
 
 console.log("visual model smoke: 2D/3D 분류·회전 양끝면·남는 면적 hover 통과");

@@ -346,15 +346,53 @@ function v3dWasteHoverText(info){
   ].join("\n");
 }
 
-function v3dEndSectionCutAlertText(fit){
-  if(typeof endSectionCutAlertText==="function") return endSectionCutAlertText(fit,"가로 배치");
-  return [
+function v3dEndPlacementName(plan){ return plan?.id==="vertical"?"세로 배치":"가로 배치"; }
+
+function v3dEndSectionCutAlertText(fit,plan){
+  const placement=v3dEndPlacementName(plan);
+  const base=typeof endSectionCutAlertText==="function"?endSectionCutAlertText(fit,placement):[
     "구간별 절단 자투리",
-    `${fit.label} · 가로 배치`,
+    `${fit.label} · ${placement}`,
     `${v3dMm(fit.height)}mm ÷ ${v3dMm(fit.panelSpan)}mm = ${fmt(fit.exact,3)}장 → ${fit.cols}행`,
     `마지막 장 사용폭 ${v3dMm(fit.lastUsed)}mm`,
     `마지막 보온재에서 ${v3dMm(fit.offcut)}mm가 남습니다.`
   ].join("\n");
+  return `${base}\n표식은 구조 내부 빈 공간이 아니라 마지막 끝행의 외곽 절단 위치를 가리킵니다.`;
+}
+
+function v3dEndWidthCutAlertText(fit,plan){
+  const placement=v3dEndPlacementName(plan);
+  return [
+    "끝열 절단 자투리",
+    placement,
+    `전체 폭 ${v3dMm(fit.span)}mm ÷ ${v3dMm(fit.panelSpan)}mm = ${fmt(fit.exact,3)}장 → ${fit.cols}열`,
+    `마지막 열 사용폭 ${v3dMm(fit.lastUsed)}mm`,
+    `마지막 보온재의 구조 외곽 쪽에서 ${v3dMm(fit.offcut)}mm가 남습니다.`,
+    "표식은 구조 내부 빈 공간이 아니라 마지막 끝열의 외곽 절단 위치를 가리킵니다."
+  ].join("\n");
+}
+
+function v3dEndWidthCutGeometry(shape,fit){
+  const lastStart=Math.max(0,(fit.cols-1)*fit.panelSpan);
+  const panelEnd=fit.cols*fit.panelSpan;
+  return {
+    lastStart,
+    actualEnd:shape.totalW,
+    panelEnd,
+    usedWidth:fit.lastUsed,
+    offcut:fit.offcut
+  };
+}
+
+function v3dEndSectionCutGeometry(shape,section,fit){
+  const center=(section.start+section.end)/2;
+  const edgeZ=center<=shape.totalW/2?section.start:section.end;
+  return {
+    edgeZ,
+    actualHeight:fit.height,
+    panelEnd:fit.cols*fit.panelSpan,
+    offcut:fit.offcut
+  };
 }
 
 function v3dSetWasteHover(info){
@@ -522,7 +560,7 @@ function v3dEndInfoHTML(m){
     ?"현재 적용안은 형상 서명과 일치하는 혼합 재단 검토값입니다. 그림은 방향 개념도이며 개별 절단 조각의 1:1 재단도는 아닙니다."
     :"수동 검토값이 없거나 형상이 달라져 가로·세로 고정 격자 중 적은 안을 자동 적용합니다.";
   return `<b class="t">양끝 계단 단면 · ${layoutName}</b>
-    <p>앞·뒤는 같은 계단 단면입니다. ${ep.perFace}장/면 × 2면 = <strong>${ep.sheets}장</strong>입니다. <strong>가로 폭 기준:</strong> ${hText}. ${vText}. 이 ‘${h.cols}열’은 한 줄의 폭 방향 수량이며, 면당 ${ep.perFace}장이라는 전체 수량과 구분해 판단합니다. ${source}</p>
+    <p>앞·뒤는 같은 계단 단면입니다. ${ep.perFace}장/면 × 2면 = <strong>${ep.sheets}장</strong>입니다. <strong>가로 폭 기준:</strong> ${hText}. ${vText}. 이 ‘${h.cols}열’은 한 줄의 폭 방향 수량이며, 면당 ${ep.perFace}장이라는 전체 수량과 구분해 판단합니다. 가로·세로 고정 배치의 빨간 !는 구조 중앙이 아니라 마지막 끝열·끝행의 외곽 절단 위치를 가리킵니다. ${source}</p>
     <div class="sum">가로 고정 ${m.x.endHorizontal.perFace}장/면 · 세로 고정 ${m.x.endVertical.perFace}장/면 · 현재 ${ep.short} ${ep.perFace}장/면</div>`;
 }
 
@@ -590,8 +628,14 @@ function v3dSyncEndUI(){
     b.classList.toggle("active",p.id===V3D.endLayout);
     b.setAttribute("aria-pressed",String(p.id===V3D.endLayout));
   });
-  const h=m.x.endHorizontal.widthFit;
-  setText("v3dEndStatus",`${ep.manual?"검토된 혼합 적용안":"고정 격자 비교안"} · W ${v3dMm(h.span)} ÷ 1,800 = ${fmt(h.exact,3)}장 → ${h.cols}열 · 마지막 ${v3dMm(h.lastUsed)}mm / 자투리 ${v3dMm(h.offcut)}mm`);
+  const layout=ep.renderId||ep.id;
+  const horizontal=m.x.endHorizontal.widthFit, vertical=m.x.endVertical.widthFit;
+  const selected=layout==="vertical"?vertical:horizontal;
+  const selectedName=layout==="vertical"?"세로 600mm":"가로 1,800mm";
+  const comparison=layout==="mixed"
+    ?`가로 끝열 ${v3dMm(horizontal.lastUsed)}mm 사용 / 자투리 ${v3dMm(horizontal.offcut)}mm · 세로 끝열 ${v3dMm(vertical.lastUsed)}mm 사용 / 자투리 ${v3dMm(vertical.offcut)}mm`
+    :`${selectedName} 기준 ${fmt(selected.exact,3)}장 → ${selected.cols}열 · 마지막 ${v3dMm(selected.lastUsed)}mm 사용 / 자투리 ${v3dMm(selected.offcut)}mm`;
+  setText("v3dEndStatus",`${ep.manual?"검토된 혼합 적용안":"고정 격자 비교안"} · ${comparison}`);
   setHTML("v3dScenarioTotal",`<small>앞·뒤 동일 계단 단면 · ${ep.perFace}장/면 × 2면 · 가로 고정 ${m.x.endHorizontal.perFace}장/면 · 세로 고정 ${m.x.endVertical.perFace}장/면</small><strong>양끝 ${ep.sheets}장</strong>`);
   const key="ends|"+m.d.id+"|"+m.d.shape.geometrySignature+"|"+V3D.endLayout;
   if(key!==V3D.uiKey){
@@ -614,8 +658,9 @@ function v3dRepaintEnds(){
 
   const d=m.d, shape=d.shape, ep=v3dEndPlan(m), layoutId=ep.renderId||ep.id;
   const hFit=m.x.endHorizontal.widthFit;
-  const widthFit=layoutId==="vertical"?m.x.endVertical.widthFit:hFit;
-  const spanLabel=layoutId==="vertical"?"세로 600mm 기준":"가로 1,800mm 기준";
+  const activePlan=layoutId==="vertical"?m.x.endVertical:layoutId==="horizontal"?m.x.endHorizontal:null;
+  const widthFit=activePlan?.widthFit||hFit;
+  const spanLabel=activePlan?.id==="vertical"?"세로 600mm 기준":"가로 1,800mm 기준";
   v3dSetWasteHover({
     title:`양끝면 ${ep.short} 배치`,
     panel:ep.panelPerFace*2,
@@ -723,8 +768,10 @@ function v3dRepaintEnds(){
       for(let z=TILE_L;z<shape.totalW-1;z+=TILE_L) grid(z,0,z,bandH,"rgba(194,65,12,.82)",1.15);
       grid(0,bandH,shape.totalW,bandH,"#c2410c",1.2,[6,4]);
     }
-    const lastStart=Math.max(0,(hFit.cols-1)*TILE_L);
-    poly([Q(x,lastStart,0),Q(x,shape.totalW,0),Q(x,shape.totalW,shape.maxHeight),Q(x,lastStart,shape.maxHeight)],"rgba(251,191,36,.16)",null);
+    if(activePlan){
+      const last=v3dEndWidthCutGeometry(shape,activePlan.widthFit);
+      poly([Q(x,last.lastStart,0),Q(x,last.actualEnd,0),Q(x,last.actualEnd,shape.maxHeight),Q(x,last.lastStart,shape.maxHeight)],"rgba(251,191,36,.16)",null);
+    }
     ctx.restore();
     poly(pts,null,"#111827",1.45);
   }
@@ -757,36 +804,61 @@ function v3dRepaintEnds(){
     });
   });
 
-  /* 가로 비교 배치에서 구간 높이마다 생기는 마지막 절단 자투리를 면적 여유와
-     분리해 빨간 경고 표식으로 보여 준다. 혼합·세로 화면에서도 '가로'라고
-     명시해 비교값임을 유지한다. 앞쪽 끝면 한 곳만 표기해도 양끝은 동일
-     단면이므로 같은 절단폭이 반복된다. */
-  {
-    const fits=m.x.endHorizontal.sectionHeightFits||[];
-    fits.forEach(fit=>{
+  /* 빨간 표식은 실제 단면 중앙이 아니라 마지막 끝열·끝행의 구조 외곽 절단점에
+     붙인다. 혼합 개념도에서는 가로·세로 비교값을 각각 외곽에 분리 표기한다. */
+  function drawCutBadge(anchor,rawCutEnd,text,tooltip,color="#dc2626",meta={}){
+    let dx=rawCutEnd[0]-anchor[0], dy=rawCutEnd[1]-anchor[1];
+    let len=Math.hypot(dx,dy);
+    if(len<.5){ dx=anchor[0]<w/2?-1:1; dy=-.18; len=Math.hypot(dx,dy); }
+    const ux=dx/len, uy=dy/len;
+    const stub=Math.max(10,Math.min(32,len));
+    const cutEnd=[anchor[0]+ux*stub,anchor[1]+uy*stub];
+    const badgeX=Math.max(17,Math.min(w-17,cutEnd[0]+ux*17));
+    const badgeY=Math.max(62,Math.min(h-68,cutEnd[1]+uy*17));
+    line(anchor,cutEnd,color,1.45,[3,2]);
+    line(cutEnd,[badgeX,badgeY],color,1.45,[3,2]);
+    ctx.beginPath(); ctx.arc(badgeX,badgeY,10,0,Math.PI*2);
+    ctx.fillStyle=color; ctx.fill();
+    ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.stroke();
+    ctx.font=`900 ${w<620?11:13}px ${V3D_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillStyle="#fff";
+    ctx.fillText("!",badgeX,badgeY+.5);
+    ctx.font=`800 ${w<620?8:10}px ${V3D_FONT}`;
+    ctx.textAlign=ux<0?"end":"start"; ctx.fillStyle="#b91c1c";
+    ctx.fillText(text,badgeX+(ux<0?-13:13),badgeY+.5);
+    V3D.hotspots.push({x:badgeX,y:badgeY,radius:18,text:tooltip,
+      anchor:{x:anchor[0],y:anchor[1]},...meta});
+  }
+
+  const displayPlans=activePlan?[activePlan]:[m.x.endHorizontal,m.x.endVertical];
+  displayPlans.forEach(plan=>{
+    const orientation=plan.id==="vertical"?"세로":"가로";
+    const comparisonOnly=!activePlan;
+    const labelPrefix=comparisonOnly?`${orientation} 비교`:orientation;
+    const widthCut=v3dEndWidthCutGeometry(shape,plan.widthFit);
+    if(Number(widthCut.offcut)>0.0001){
+      const edgeY=Math.max(0,shape.endHeight*(comparisonOnly?(plan.id==="vertical"?.30:.70):.52));
+      const anchor=Q(dimFace.x,widthCut.actualEnd,edgeY);
+      const rawCutEnd=Q(dimFace.x,widthCut.panelEnd,edgeY);
+      drawCutBadge(anchor,rawCutEnd,`${labelPrefix} 끝열 ${v3dMm(widthCut.offcut)}mm`,
+        v3dEndWidthCutAlertText(plan.widthFit,plan),"#dc2626",{kind:"width-cut",orientation});
+    }
+    (plan.sectionHeightFits||[]).forEach(fit=>{
       if(Number(fit.offcut)<=0.0001) return;
       const section=shape.sections.find(v=>v.id===fit.sectionId);
       if(!section) return;
-      const anchor=Q(dimFace.x,(section.start+section.end)/2,section.height);
-      const toLeft=anchor[0]<w/2;
-      const badgeX=Math.max(17,Math.min(w-17,anchor[0]+(toLeft?-24:24)));
-      const badgeY=Math.max(62,Math.min(h-68,anchor[1]+18));
-      line(anchor,[badgeX,badgeY],"#dc2626",1.4,[3,2]);
-      ctx.beginPath(); ctx.arc(badgeX,badgeY,10,0,Math.PI*2);
-      ctx.fillStyle="#dc2626"; ctx.fill();
-      ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.stroke();
-      ctx.font=`900 ${w<620?11:13}px ${V3D_FONT}`;
-      ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillStyle="#fff";
-      ctx.fillText("!",badgeX,badgeY+.5);
-      ctx.font=`800 ${w<620?8:10}px ${V3D_FONT}`;
-      ctx.textAlign=toLeft?"end":"start"; ctx.fillStyle="#b91c1c";
-      ctx.fillText(`가로 ${v3dMm(fit.offcut)}mm`,badgeX+(toLeft?-13:13),badgeY+.5);
-      V3D.hotspots.push({x:badgeX,y:badgeY,radius:18,text:v3dEndSectionCutAlertText(fit)});
+      const cut=v3dEndSectionCutGeometry(shape,section,fit);
+      const anchor=Q(dimFace.x,cut.edgeZ,cut.actualHeight);
+      const rawCutEnd=Q(dimFace.x,cut.edgeZ,cut.panelEnd);
+      drawCutBadge(anchor,rawCutEnd,`${labelPrefix} ${v3dMm(fit.offcut)}mm`,
+        v3dEndSectionCutAlertText(fit,plan),"#dc2626",{kind:"height-cut",orientation,sectionId:fit.sectionId});
     });
-    ctx.textAlign="left"; ctx.textBaseline="alphabetic";
-  }
+  });
+  ctx.textAlign="left"; ctx.textBaseline="alphabetic";
 
-  const exactLine=`${spanLabel}: W ${v3dMm(widthFit.span)} ÷ ${v3dMm(widthFit.panelSpan)} = ${fmt(widthFit.exact,3)}장 → ${widthFit.cols}열 · 마지막 ${v3dMm(widthFit.lastUsed)}mm / 절단폭 ${v3dMm(widthFit.offcut)}mm`;
+  const exactLine=activePlan
+    ?`${spanLabel}: W ${v3dMm(widthFit.span)} ÷ ${v3dMm(widthFit.panelSpan)} = ${fmt(widthFit.exact,3)}장 → ${widthFit.cols}열 · 마지막 ${v3dMm(widthFit.lastUsed)}mm / 절단폭 ${v3dMm(widthFit.offcut)}mm`
+    :"혼합안은 개념도입니다 · 가로·세로 비교 자투리는 마지막 끝열·끝행의 구조 외곽에 각각 표시합니다.";
   ctx.font=`800 ${w<620?8.5:10.5}px ${V3D_FONT}`;
   const noteW=Math.min(w-24,ctx.measureText(exactLine).width+24);
   ctx.fillStyle="rgba(255,251,235,.97)"; ctx.fillRect((w-noteW)/2,h-43,noteW,30);
