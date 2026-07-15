@@ -38,6 +38,17 @@ assert.deepEqual(JSON.parse(JSON.stringify(endWidthFits)),{
   vertical:{exact:11.755,cols:12,lastUsed:453,offcut:147}
 });
 
+const endHeightFits=evaluate(`(()=>{
+  const high=calc(CASES[0]).endHorizontal.sectionHeightFits.find(v=>v.sectionId==="high");
+  return {
+    panelSpan:high.panelSpan,exact:Number(high.exact.toFixed(3)),rows:high.cols,
+    lastUsed:high.lastUsed,offcut:high.offcut
+  };
+})()`);
+assert.deepEqual(JSON.parse(JSON.stringify(endHeightFits)),{
+  panelSpan:600,exact:6.95,rows:7,lastUsed:570,offcut:30
+});
+
 const multi=evaluate(`(()=>{
   const c={id:"synthetic-4",name:"4단 상승·하강",L:10000,shape:{
     schemaVersion:1,type:"stepped-profile",startSide:"left",

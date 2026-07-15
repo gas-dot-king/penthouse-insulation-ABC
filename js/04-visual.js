@@ -79,6 +79,22 @@ function visualWasteAttr(info){
   return text?` data-waste="${esc(text)}" style="cursor:help"`:"";
 }
 
+function visualTooltipAttr(text){
+  return text?` data-waste="${esc(text)}" style="cursor:help"`:"";
+}
+
+function endSectionCutAlertText(fit,placement="가로 배치"){
+  if(!fit||Number(fit.offcut)<=0.0001) return "";
+  return [
+    "구간별 절단 자투리",
+    `${fit.label} · ${placement}`,
+    `${fmt(fit.height,1)}mm ÷ ${fmt(fit.panelSpan,1)}mm = ${fmt(fit.exact,3)}장 → ${fit.cols}행`,
+    `마지막 장 사용폭 ${fmt(fit.lastUsed,1)}mm`,
+    `마지막 보온재에서 ${fmt(fit.offcut,1)}mm가 남습니다.`,
+    "전체 투입 면적과 별개로, 이 구간에서 절단 후 남는 폭입니다."
+  ].join("\n");
+}
+
 function bindVisualWasteHover(){
   const wrap=byId("svgWrap");
   if(!wrap) return;
@@ -584,6 +600,29 @@ function endGridX(d,ex,tw,at,scale){
   return d.shape.startSide==="right" ? ex+tw-at*scale : ex+at*scale;
 }
 
+function drawEndSectionCutAlerts(s,d,shape,plan,ex,floorY,tw,scale,box){
+  if(plan.id!=="horizontal") return;
+  (plan.sectionHeightFits||[]).forEach(fit=>{
+    if(Number(fit.offcut)<=0.0001) return;
+    const section=shape.sections.find(v=>v.id===fit.sectionId);
+    if(!section) return;
+    const left=endGridX(d,ex,tw,section.start,scale);
+    const right=endGridX(d,ex,tw,section.end,scale);
+    const anchorX=(left+right)/2;
+    const topY=floorY-section.height*scale;
+    const badgeY=Math.min(floorY-16,topY+18);
+    const canLabelRight=anchorX<box.x0+box.w-82;
+    const labelX=anchorX+(canLabelRight?14:-14);
+    const labelAnchor=canLabelRight?"start":"end";
+    const tip=endSectionCutAlertText(fit,"가로 배치");
+    s.push(`<g pointer-events="all"${visualTooltipAttr(tip)}>`);
+    s.push(`<circle cx="${anchorX}" cy="${badgeY}" r="10" fill="#dc2626" stroke="#fff" stroke-width="2"/>`);
+    s.push(`<text x="${anchorX}" y="${badgeY+4}" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif" font-size="13" font-weight="900" fill="#fff">!</text>`);
+    s.push(`<text x="${labelX}" y="${badgeY+4}" text-anchor="${labelAnchor}" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif" font-size="11" font-weight="900" fill="#b91c1c">${fmt(fit.offcut,1)}mm 자투리</text>`);
+    s.push(`</g>`);
+  });
+}
+
 function drawEndFixedOption(s,x,box,plan,scale,copy={}){
   const d=x.d, {x0,y0,w,h}=box;
   const shape=d.shape;
@@ -628,6 +667,7 @@ function drawEndFixedOption(s,x,box,plan,scale,copy={}){
     title:`${title} · 1면 기준`, panel:plan.panelPerFace, actual:plan.actualPerFace,
     note:`${direction} ${fmt(fit.exact,3)}장 → ${fit.cols}열 · 마지막 ${fmt(fit.lastUsed,1)}mm 사용 / 끝단 절단폭 ${fmt(fit.offcut,1)}mm. 재사용 가능 여부는 포함하지 않습니다.`
   })}/>`);
+  drawEndSectionCutAlerts(s,d,shape,plan,ex,floorY,tw,scale,box);
   s.push(`<line class="dim" x1="${ex}" y1="${floorY+20}" x2="${ex+tw}" y2="${floorY+20}"/><text class="mut" x="${ex+tw/2}" y="${floorY+38}" text-anchor="middle">전체 폭 ${fmt(shape.totalW,1)}mm · ${shape.sections.length}개 구간 통합</text>`);
   s.push(`<text class="txt" x="${x0+16}" y="${y0+h-76}" font-weight="800">${copy.resultLabel||"고정 격자"} ${plan.perFace}장/면 · 2면 ${plan.sheets}장</text>`);
   s.push(`<text class="mut" x="${x0+16}" y="${y0+h-52}">${plan.summary}</text>`);

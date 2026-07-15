@@ -28,6 +28,18 @@ function panelSpanMetrics(span,panelSpan){
   };
 }
 
+/* 양끝면은 전체 폭의 격자 수와 별개로, 각 높이 구간의 마지막 한 장에서
+   실제로 얼마나 절단되어 남는지도 확인한다. 예: 4170 ÷ 600 = 6.95장,
+   마지막 장 사용폭 570mm / 절단 자투리 30mm. */
+function endSectionHeightFits(d,panelHeight){
+  return d.shape.sections.map(section=>({
+    sectionId:section.id,
+    label:section.label,
+    height:section.height,
+    ...panelSpanMetrics(section.height,panelHeight)
+  }));
+}
+
 function base(c){
   const shape=normalizeCaseShape(c);
   const L=shapeNumber(c.L,"L",c.name||c.id||"case");
@@ -292,6 +304,7 @@ function endHorizontalPlan(d){
     tw:TILE_L, th:TILE_S,
     allRows:occ.rows, allCols:occ.cols, occupiedCells:occ.cells, rowOccupancy:occ.byRow,
     widthFit,
+    sectionHeightFits:endSectionHeightFits(d,TILE_S),
     summary:`점유 격자 ${occ.cols}열 × ${occ.rows}행 중 ${perFace}칸`,
     perFace, sheets:perFace*2,
     actualPerFace, panelPerFace,
@@ -310,6 +323,7 @@ function endVerticalPlan(d){
     tw:TILE_S, th:TILE_L,
     allCols:occ.cols, allRows:occ.rows, occupiedCells:occ.cells, colOccupancy:occ.byCol,
     widthFit,
+    sectionHeightFits:endSectionHeightFits(d,TILE_L),
     summary:`점유 격자 ${occ.cols}열 × ${occ.rows}단 중 ${perFace}칸`,
     perFace, sheets:perFace*2,
     actualPerFace, panelPerFace,
