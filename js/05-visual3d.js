@@ -14,7 +14,7 @@ const V3D={
   runOrientation:{high:"vertical",drape:"vertical"},
   bandMode:{high:"auto",drape:"auto"},
   autoPlayed:false, raf:0, canvas:null, ctx:null, ro:null,
-  lastPX:0, lastPY:0
+  lastPX:0, lastPY:0, hoverInfo:null
 };
 const V3D_SPEED=2000;   /* 재생 속도: 초당 전개 mm */
 const V3D_GAP=0.6;      /* 재생 시 단계 사이 멈춤(초) */
@@ -154,12 +154,6 @@ function draw3D(x,scope="shell"){
   const nextScope=scope==="ends"?"ends":"shell";
   const scopeChanged=V3D.scope!==nextScope;
   V3D.scope=nextScope;
-  setVisualHead(
-    nextScope==="ends"?"3D 양끝면":"3D 높은 벽 → 지붕 → 낮은 벽",
-    nextScope==="ends"
-      ?"앞·뒤 양끝 계단 단면만 확대해 3D 패널로 보여줍니다. 폭·높이 치수와 끝판 절단 여유는 구조물 바깥에만 표시합니다."
-      :"높은 벽에서 시작해 지붕·단차를 접어 낮은 벽까지 덮는 긴 외피만 3D로 보여줍니다. 양끝면은 별도 3D 메뉴에서 검토합니다."
-  );
   V3D.x=x;
   V3D.model=v3dModel(x);
   const fresh=v3dEnsureDom();
@@ -168,7 +162,7 @@ function draw3D(x,scope="shell"){
     V3D.step=nextScope==="ends"?1:0;
     V3D.zoom=1;
     V3D.uiKey="";
-    v3dApplyPreset(nextScope==="ends"?"front":"iso");
+    v3dApplyPreset("iso");
   }else if(V3D.presetId) v3dApplyPreset(V3D.presetId);
   v3dSyncScopeDom();
   V3D.uiKey="";
@@ -254,12 +248,11 @@ function v3dEnsureDom(){
   if(byId("v3dCanvas")) return false;
   byId("svgWrap").innerHTML=`
   <div class="v3d" id="v3dRoot" data-scope="shell">
-    <div class="v3d-scope-intro" id="v3dScopeIntro"></div>
     <div class="v3d-bar v3d-shell-only">
       <div class="seg" id="v3dSteps">${V3D_STEPS.map((t,i)=>`<button data-step="${i}">${t}</button>`).join("")}</div>
-      <button class="v3d-play" id="v3dPlay">▶ 순서대로 재생</button>
       <div class="seg" id="v3dViews">${Object.entries(v3dPresets()).map(([id,p])=>`<button data-pv="${id}">${p.name}</button>`).join("")}</div>
     </div>
+    <div class="v3d-playbar v3d-shell-only"><button class="v3d-play" id="v3dPlay">▶ 순서대로 재생</button></div>
     <div class="v3d-scenario-grid v3d-shell-only">
       ${v3dScenarioCardHTML("high","① 시작 외벽","시작 모서리 → 바닥")}
       ${v3dScenarioCardHTML("drape","② 반대 방향 외피","지붕·단차를 접어 반대 외벽 바닥까지")}
@@ -273,6 +266,7 @@ function v3dEnsureDom(){
     <div class="v3d-stage" id="v3dStage">
       <canvas id="v3dCanvas"></canvas>
       <div class="v3d-hint" id="v3dHint">드래그 회전 · 휠 확대/축소 · 더블클릭 시점 초기화</div>
+      <div class="v3d-hover-tip" id="v3dHoverTip" role="tooltip" hidden></div>
     </div>
     <section class="v3d-dim-panel" id="v3dDimensions" aria-label="구조 치수"></section>
     <div class="v3d-info" id="v3dInfo"></div>
@@ -312,9 +306,9 @@ function v3dEnsureDom(){
   }));
 
   let pid=null;
-  cv.addEventListener("pointerdown",e=>{ pid=e.pointerId; cv.setPointerCapture(pid); V3D.lastPX=e.clientX; V3D.lastPY=e.clientY; });
+  cv.addEventListener("pointerdown",e=>{ v3dHideWasteHover(); pid=e.pointerId; cv.setPointerCapture(pid); V3D.lastPX=e.clientX; V3D.lastPY=e.clientY; });
   cv.addEventListener("pointermove",e=>{
-    if(pid===null) return;
+    if(pid===null){ v3dShowWasteHover(e); return; }
     const dx=e.clientX-V3D.lastPX, dy=e.clientY-V3D.lastPY;
     V3D.lastPX=e.clientX; V3D.lastPY=e.clientY;
     V3D.yaw+=dx*0.0075;
@@ -326,6 +320,7 @@ function v3dEnsureDom(){
   const up=()=>{ pid=null; };
   cv.addEventListener("pointerup",up);
   cv.addEventListener("pointercancel",up);
+  cv.addEventListener("pointerleave",v3dHideWasteHover);
   cv.addEventListener("wheel",e=>{
     e.preventDefault();
     const minZoom=V3D.scope==="ends"?.75:.35;
@@ -333,12 +328,48 @@ function v3dEnsureDom(){
     V3D.zoom=Math.min(maxZoom,Math.max(minZoom,V3D.zoom*Math.exp(-e.deltaY*0.0012)));
     if(!V3D.playing) v3dRepaint();
   },{passive:false});
-  cv.addEventListener("dblclick",()=>{ V3D.zoom=1; v3dApplyPreset(V3D.scope==="ends"?"front":"iso"); v3dSyncUI(); if(!V3D.playing) v3dRepaint(); });
+  cv.addEventListener("dblclick",()=>{ V3D.zoom=1; v3dApplyPreset("iso"); v3dSyncUI(); if(!V3D.playing) v3dRepaint(); });
 
   if(V3D.ro) V3D.ro.disconnect();
   V3D.ro=new ResizeObserver(()=>{ if(byId("v3dCanvas")===cv) v3dRepaint(); });
   V3D.ro.observe(byId("v3dStage"));
   return true;
+}
+
+function v3dWasteHoverText(info){
+  if(!info) return "";
+  const panel=Number(info.panel)||0, actual=Number(info.actual)||0;
+  const waste=Math.max(0,panel-actual);
+  return [
+    "보온재 남는 면적",
+    info.title||"현재 3D 배치",
+    `${fmt(waste,2)}㎡`,
+    `투입 ${fmt(panel,2)}㎡ − 실제 피복 ${fmt(actual,2)}㎡`,
+    info.note||"재사용 가능 여부는 포함하지 않습니다."
+  ].join("\n");
+}
+
+function v3dSetWasteHover(info){
+  V3D.hoverInfo=info||null;
+  v3dHideWasteHover();
+}
+
+function v3dHideWasteHover(){
+  if(typeof document==="undefined") return;
+  const tip=byId("v3dHoverTip");
+  if(tip) tip.hidden=true;
+}
+
+function v3dShowWasteHover(e){
+  if(typeof document==="undefined") return;
+  const tip=byId("v3dHoverTip"), stage=byId("v3dStage");
+  const copy=v3dWasteHoverText(V3D.hoverInfo);
+  if(!tip||!stage||!copy) return;
+  const rect=stage.getBoundingClientRect();
+  tip.textContent=copy;
+  tip.hidden=false;
+  tip.style.left=`${Math.max(8,Math.min(rect.width-270,e.clientX-rect.left+14))}px`;
+  tip.style.top=`${Math.max(8,Math.min(rect.height-126,e.clientY-rect.top+14))}px`;
 }
 
 function v3dSyncScopeDom(){
@@ -348,11 +379,8 @@ function v3dSyncScopeDom(){
   root.dataset.scope=endsOnly?"ends":"shell";
   qsa(".v3d-shell-only",root).forEach(el=>{ el.hidden=endsOnly; });
   qsa(".v3d-ends-only",root).forEach(el=>{ el.hidden=!endsOnly; });
-  if(byId("v3dScopeIntro")) setHTML("v3dScopeIntro",endsOnly
-    ?`<b>양끝면 전용 3D</b><span>앞·뒤 끝면만 확대합니다. 긴 외피는 그리지 않으며, 치수선·판 수·절단 자투리는 형상 바깥에서 읽습니다.</span>`
-    :`<b>긴 외피 전용 3D</b><span>높은 벽에서 지붕·단차를 거쳐 낮은 벽까지의 연속 외피만 표시합니다. 양끝면은 별도 메뉴로 분리했습니다.</span>`);
   if(byId("v3dHint")) setText("v3dHint",endsOnly
-    ?"양끝 단면만 확대 · 휠 확대/축소 · 치수는 외곽 표기"
+    ?"드래그 회전 · 휠 확대/축소 · 치수는 외곽 표기"
     :"드래그 회전 · 휠 확대/축소 · 더블클릭 시점 초기화");
 }
 
@@ -552,7 +580,6 @@ function v3dRepaintEnds(){
   if(!m||!cv) return;
   const ctx=V3D.ctx, dpr=window.devicePixelRatio||1;
   const w=cv.clientWidth||10, h=cv.clientHeight||10;
-  const compact=w<640, stacked=compact;
   const bw=Math.round(w*dpr), bh=Math.round(h*dpr);
   if(cv.width!==bw||cv.height!==bh){ cv.width=bw; cv.height=bh; }
   ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -560,136 +587,145 @@ function v3dRepaintEnds(){
 
   const d=m.d, shape=d.shape, ep=v3dEndPlan(m), layoutId=ep.renderId||ep.id;
   const hFit=m.x.endHorizontal.widthFit;
-  const gap=stacked?Math.max(104,76+shape.sections.length*20):Math.max(56,Math.min(110,w*.105));
-  const sideRail=stacked?120:145, rightRail=stacked?62:108;
-  const usableW=stacked?w-sideRail-rightRail:Math.max(80,w-sideRail-rightRail-gap);
-  const usableH=stacked?Math.max(80,h-78-gap-110):Math.max(100,h-210);
-  const scale=Math.max(.008,Math.min(
-    stacked?usableW/shape.totalW:usableW/(shape.totalW*2),
-    stacked?(usableH/(shape.maxHeight*2)):usableH/shape.maxHeight
-  )*V3D.zoom);
-  const panelW=shape.totalW*scale, panelH=shape.maxHeight*scale;
-  const firstX=stacked?(w-panelW)/2:sideRail+(usableW-panelW*2)/2;
-  const firstFloor=stacked?78+panelH:90+panelH;
-  const secondX=stacked?firstX:firstX+panelW+gap;
-  const secondFloor=stacked?firstFloor+panelH+gap:firstFloor;
-  const depthX=Math.max(9,Math.min(28,16+Math.abs(Math.sin(V3D.yaw))*12));
-  const depthY=-Math.max(7,Math.min(18,10+Math.abs(Math.cos(V3D.yaw))*8));
-  const mapZ=z=>shape.startSide==="right"?shape.totalW-z:z;
+  const widthFit=layoutId==="vertical"?m.x.endVertical.widthFit:hFit;
+  const spanLabel=layoutId==="vertical"?"세로 600mm 기준":"가로 1,800mm 기준";
+  v3dSetWasteHover({
+    title:`양끝면 ${ep.short} 배치`,
+    panel:ep.panelPerFace*2,
+    actual:ep.actualPerFace*2,
+    note:`1면 기준 ${spanLabel} ${fmt(widthFit.exact,3)}장 → ${widthFit.cols}열 · 마지막 ${v3dMm(widthFit.lastUsed)}mm 사용 / 끝단 절단폭 ${v3dMm(widthFit.offcut)}mm. 투입 대비 면적차이며 재사용 가능 여부는 포함하지 않습니다.`
+  });
+
+  /* 실제 길이 L은 너무 길어 끝면이 보이지 않으므로, 두 끝면 사이의 표시 깊이만 축소한다.
+     회전 투영 자체는 긴 외피 3D와 같은 yaw/pitch 공식을 사용한다. */
+  const depth=Math.max(900,Math.min(2600,shape.totalW*.36));
+  const cyw=Math.cos(V3D.yaw), syw=Math.sin(V3D.yaw);
+  const cp=Math.cos(V3D.pitch), sp=Math.sin(V3D.pitch);
+  const ctr=[depth/2,shape.maxHeight/2,shape.totalW/2];
+  const rot=p=>{
+    const px=p[0]-ctr[0], py=p[1]-ctr[1], pz=p[2]-ctr[2];
+    const x1=px*cyw+pz*syw, z1=-px*syw+pz*cyw;
+    return [x1,z1*sp-py*cp,py*sp+z1*cp];
+  };
+  const rotN=n=>n[1]*sp+(-n[0]*syw+n[2]*cyw)*cp;
+  const dimOff=Math.max(460,Math.min(880,shape.totalW*.13));
+  const bound=[];
+  const add=p=>bound.push(rot(p));
+  [0,depth].forEach(x=>{
+    shape.endPolygon.forEach(pt=>add([x,pt[1],pt[0]]));
+    add([x,-dimOff,0]); add([x,-dimOff,shape.totalW]);
+    add([x,shape.maxHeight+dimOff,0]); add([x,shape.maxHeight+dimOff,shape.totalW]);
+    shape.sections.forEach((section,index)=>{
+      add([x,section.height+dimOff*(.42+index*.16),section.start]);
+      add([x,section.height+dimOff*(.42+index*.16),section.end]);
+      const outside=shape.startSide==="left"?-dimOff*(.7+index*.22):shape.totalW+dimOff*(.7+index*.22);
+      add([x,0,outside]); add([x,section.height,outside]);
+    });
+  });
+  let bx0=Infinity,bx1=-Infinity,by0=Infinity,by1=-Infinity;
+  bound.forEach(p=>{ bx0=Math.min(bx0,p[0]); bx1=Math.max(bx1,p[0]); by0=Math.min(by0,p[1]); by1=Math.max(by1,p[1]); });
+  const scale=Math.max(.01,Math.min((w-56)/Math.max(1,bx1-bx0),(h-124)/Math.max(1,by1-by0))*V3D.zoom);
+  const ox=w/2-(bx0+bx1)/2*scale, oy=(h-18)/2-(by0+by1)/2*scale+22;
+  const P=p=>{ const r=rot(p); return [ox+r[0]*scale,oy+r[1]*scale,r[2]]; };
+  const Q=(x,z,y)=>P([x,y,z]);
 
   const line=(a,b,color="#64748b",width=1,dash=[])=>{
     ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]);
     ctx.strokeStyle=color; ctx.lineWidth=width; ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
   };
-  const path=(pts,close=true)=>{
-    ctx.beginPath(); pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); if(close) ctx.closePath();
+  const path=pts=>{ ctx.beginPath(); pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.closePath(); };
+  const poly=(pts,fill,stroke,width=1)=>{
+    path(pts);
+    if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+    if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=width; ctx.stroke(); }
+  };
+  const shade=(hex,f)=>{
+    const c=parseInt(hex.slice(1),16);
+    return `rgb(${Math.round(((c>>16)&255)*f)},${Math.round(((c>>8)&255)*f)},${Math.round((c&255)*f)})`;
   };
   const label=(x,y,text,o={})=>{
-    const size=o.size||(compact?9.5:11.5), pad=o.pad===undefined?5:o.pad;
-    ctx.font=`${o.weight||700} ${size}px ${V3D_FONT}`;
-    const tw=ctx.measureText(text).width, th=size+pad*2;
-    const align=o.align||"center";
-    const lx=align==="left"?x:align==="right"?x-tw-2*pad:x-tw/2-pad;
-    const ly=y-th/2;
-    ctx.fillStyle=o.bg||"rgba(255,255,255,.94)"; ctx.fillRect(lx,ly,tw+pad*2,th);
-    ctx.strokeStyle=o.border||"rgba(100,116,139,.4)"; ctx.lineWidth=.8; ctx.strokeRect(lx,ly,tw+pad*2,th);
-    ctx.fillStyle=o.color||"#334155"; ctx.textAlign="left"; ctx.textBaseline="middle";
-    ctx.fillText(text,lx+pad,y+.25);
+    const size=o.size||(w<620?8.5:10.5), pad=4;
+    ctx.font=`700 ${size}px ${V3D_FONT}`;
+    const tw=ctx.measureText(text).width, ww=tw+pad*2, hh=size+pad*2;
+    const lx=Math.max(3,Math.min(w-ww-3,x-ww/2)), ly=Math.max(54,Math.min(h-hh-5,y-hh/2));
+    ctx.fillStyle="rgba(255,255,255,.94)"; ctx.fillRect(lx,ly,ww,hh);
+    ctx.strokeStyle="rgba(100,116,139,.42)"; ctx.lineWidth=.8; ctx.strokeRect(lx,ly,ww,hh);
+    ctx.fillStyle=o.color||"#334155"; ctx.textAlign="left"; ctx.textBaseline="middle"; ctx.fillText(text,lx+pad,ly+hh/2+.25);
   };
-  const dim=(a,b,text,o={})=>{
-    line(a,b,o.color||"#475569",1.05);
-    const dx=b[0]-a[0], dy=b[1]-a[1], len=Math.hypot(dx,dy)||1;
-    const nx=-dy/len, ny=dx/len, tick=4;
-    line([a[0]-nx*tick,a[1]-ny*tick],[a[0]+nx*tick,a[1]+ny*tick],o.color||"#475569",1.15);
-    line([b[0]-nx*tick,b[1]-ny*tick],[b[0]+nx*tick,b[1]+ny*tick],o.color||"#475569",1.15);
-    label((a[0]+b[0])/2+(o.dx||0),(a[1]+b[1])/2+(o.dy||0),text,{size:o.size||10,color:o.color||"#334155"});
+  const dim=(a3,b3,text,o={})=>{
+    const a=P(a3), b=P(b3), dx=b[0]-a[0], dy=b[1]-a[1], len=Math.hypot(dx,dy);
+    if(len<16) return;
+    const nx=-dy/len, ny=dx/len, color=o.color||"#475569", tick=4;
+    line(a,b,color,1.05);
+    line([a[0]-nx*tick,a[1]-ny*tick],[a[0]+nx*tick,a[1]+ny*tick],color,1.1);
+    line([b[0]-nx*tick,b[1]-ny*tick],[b[0]+nx*tick,b[1]+ny*tick],color,1.1);
+    label((a[0]+b[0])/2+nx*(o.offset||12),(a[1]+b[1])/2+ny*(o.offset||12),text,{size:o.size,color});
   };
 
-  function drawPanel(x,floor,title,index){
-    const p=(z,y,back=false)=>[x+mapZ(z)*scale+(back?depthX:0),floor-y*scale+(back?depthY:0)];
-    const front=shape.endPolygon.map(v=>p(v[0],v[1]));
-    const back=shape.endPolygon.map(v=>p(v[0],v[1],true));
-    path(back); ctx.fillStyle="#dbe4f0"; ctx.fill(); ctx.strokeStyle="#94a3b8"; ctx.lineWidth=1; ctx.stroke();
-    for(let i=0;i<front.length;i++){
-      const j=(i+1)%front.length;
-      path([back[i],back[j],front[j],front[i]]);
-      ctx.fillStyle=i%2?"#cbd5e1":"#e2e8f0"; ctx.fill();
-    }
-    path(front); ctx.fillStyle=layoutId==="horizontal"?"#ffedd5":layoutId==="vertical"?"#dbeafe":"#ede9fe"; ctx.fill();
-    ctx.save(); path(front); ctx.clip();
-    const grid=(z0,y0,z1,y1,color,width=1,dash=[])=>line(p(z0,y0),p(z1,y1),color,width,dash);
+  const faceColor=layoutId==="horizontal"?"#ffedd5":layoutId==="vertical"?"#dbeafe":"#ede9fe";
+  function drawFace(x,normal){
+    const pts=shape.endPolygon.map(pt=>Q(x,pt[0],pt[1]));
+    const visible=rotN(normal)>0.02;
+    poly(pts,shade(faceColor,visible?1:.84),null);
+    ctx.save(); path(pts); ctx.clip();
+    const grid=(z0,y0,z1,y1,color,width=1,dash=[])=>line(Q(x,z0,y0),Q(x,z1,y1),color,width,dash);
     if(layoutId==="horizontal"){
-      for(let y=TILE_S;y<shape.maxHeight-1;y+=TILE_S) grid(0,y,shape.totalW,y,"rgba(194,65,12,.58)",1);
-      for(let at=TILE_L;at<shape.totalW-1;at+=TILE_L) grid(at,0,at,shape.maxHeight,"rgba(194,65,12,.78)",1.2);
+      for(let y=TILE_S;y<shape.maxHeight-1;y+=TILE_S) grid(0,y,shape.totalW,y,"rgba(194,65,12,.60)",1);
+      for(let z=TILE_L;z<shape.totalW-1;z+=TILE_L) grid(z,0,z,shape.maxHeight,"rgba(194,65,12,.82)",1.2);
     }else if(layoutId==="vertical"){
-      for(let at=TILE_S;at<shape.totalW-1;at+=TILE_S) grid(at,0,at,shape.maxHeight,"rgba(37,99,235,.58)",.95);
-      for(let y=TILE_L;y<shape.maxHeight-1;y+=TILE_L) grid(0,y,shape.totalW,y,"rgba(29,78,216,.8)",1.2);
+      for(let z=TILE_S;z<shape.totalW-1;z+=TILE_S) grid(z,0,z,shape.maxHeight,"rgba(37,99,235,.60)",.95);
+      for(let y=TILE_L;y<shape.maxHeight-1;y+=TILE_L) grid(0,y,shape.totalW,y,"rgba(29,78,216,.84)",1.2);
     }else{
       const bandH=Math.min(TILE_S,shape.minHeight);
-      ctx.fillStyle="rgba(255,223,181,.9)"; ctx.fillRect(x,floor-bandH*scale,panelW,bandH*scale);
-      for(let at=TILE_S;at<shape.totalW-1;at+=TILE_S) grid(at,bandH,at,shape.maxHeight,"rgba(124,58,237,.56)",.9);
-      for(let y=bandH+TILE_L;y<shape.maxHeight-1;y+=TILE_L) grid(0,y,shape.totalW,y,"rgba(109,40,217,.75)",1.1);
-      for(let at=TILE_L;at<shape.totalW-1;at+=TILE_L) grid(at,0,at,bandH,"rgba(194,65,12,.82)",1.15);
+      poly([Q(x,0,0),Q(x,shape.totalW,0),Q(x,shape.totalW,bandH),Q(x,0,bandH)],"rgba(255,223,181,.9)",null);
+      for(let z=TILE_S;z<shape.totalW-1;z+=TILE_S) grid(z,bandH,z,shape.maxHeight,"rgba(124,58,237,.58)",.9);
+      for(let y=bandH+TILE_L;y<shape.maxHeight-1;y+=TILE_L) grid(0,y,shape.totalW,y,"rgba(109,40,217,.78)",1.1);
+      for(let z=TILE_L;z<shape.totalW-1;z+=TILE_L) grid(z,0,z,bandH,"rgba(194,65,12,.82)",1.15);
       grid(0,bandH,shape.totalW,bandH,"#c2410c",1.2,[6,4]);
     }
-    /* 마지막 가로 1,800 폭은 절단되는 판이므로 옅게 강조한다. */
-    const lastStart=(hFit.cols-1)*TILE_L;
-    const z0=lastStart, z1=lastStart+TILE_L;
-    const a=p(z0,0), b=p(z1,shape.maxHeight);
-    ctx.fillStyle="rgba(251,191,36,.15)"; ctx.fillRect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]));
+    const lastStart=Math.max(0,(hFit.cols-1)*TILE_L);
+    poly([Q(x,lastStart,0),Q(x,shape.totalW,0),Q(x,shape.totalW,shape.maxHeight),Q(x,lastStart,shape.maxHeight)],"rgba(251,191,36,.16)",null);
     ctx.restore();
-    path(front); ctx.strokeStyle="#111827"; ctx.lineWidth=1.55; ctx.stroke();
-    ctx.font=`800 ${compact?10:12}px ${V3D_FONT}`; ctx.fillStyle="#111827"; ctx.textAlign="center"; ctx.textBaseline="alphabetic";
-    ctx.fillText(title,x+panelW/2,floor-panelH-16);
-    ctx.font=`600 ${compact?8.5:10}px ${V3D_FONT}`; ctx.fillStyle="#64748b";
-    ctx.fillText(index===0?"치수 기준면":"동일 형상 · 같은 수량",x+panelW/2,floor-panelH-3);
-    return {p,x,floor};
+    poly(pts,null,"#111827",1.45);
   }
 
-  const first=drawPanel(firstX,firstFloor,"앞쪽 양끝면",0);
-  drawPanel(secondX,secondFloor,"뒤쪽 양끝면",1);
+  const items=[];
+  for(let i=0;i<shape.endPolygon.length;i++){
+    const a=shape.endPolygon[i], b=shape.endPolygon[(i+1)%shape.endPolygon.length];
+    const pts=[Q(0,a[0],a[1]),Q(0,b[0],b[1]),Q(depth,b[0],b[1]),Q(depth,a[0],a[1])];
+    const dep=pts.reduce((sum,p)=>sum+p[2],0)/pts.length;
+    items.push({dep,draw:()=>poly(pts,i%2?"#cbd5e1":"#e2e8f0","#94a3b8",.8)});
+  }
+  [{x:0,n:[-1,0,0]},{x:depth,n:[1,0,0]}].forEach(face=>{
+    const dep=rot([face.x,shape.maxHeight/2,shape.totalW/2])[2];
+    items.push({dep,draw:()=>drawFace(face.x,face.n)});
+  });
+  items.sort((a,b)=>a.dep-b.dep).forEach(item=>item.draw());
 
-  /* 모든 치수선은 첫 번째 기준면의 외곽 레일에만 둔다. */
-  const xA=first.p(0,0)[0], xB=first.p(shape.totalW,0)[0];
-  const bottomY=first.floor+26;
-  line([xA,first.floor],[xA,bottomY],"rgba(71,85,105,.52)",.85,[3,3]);
-  line([xB,first.floor],[xB,bottomY],"rgba(71,85,105,.52)",.85,[3,3]);
-  dim([xA,bottomY],[xB,bottomY],`전체 W ${v3dMm(shape.totalW)}mm`,{dy:12,size:compact?8.5:10.5});
+  /* 치수는 단면 밖 레일에만 표기한다. */
+  const dimFace=[{x:0,n:[-1,0,0]},{x:depth,n:[1,0,0]}].sort((a,b)=>rotN(b.n)-rotN(a.n))[0];
+  dim([dimFace.x,-dimOff,0],[dimFace.x,-dimOff,shape.totalW],`전체 W ${v3dMm(shape.totalW)}mm`,{offset:13});
   shape.sections.forEach((section,index)=>{
-    const a=first.p(section.start,0), b=first.p(section.end,0), y=bottomY+28+index*(compact?18:20);
-    line([a[0],first.floor],[a[0],y],"rgba(71,85,105,.38)",.75,[3,3]);
-    line([b[0],first.floor],[b[0],y],"rgba(71,85,105,.38)",.75,[3,3]);
-    dim([a[0],y],[b[0],y],`${section.label} W ${v3dMm(section.width)}mm`,{dy:10,size:compact?8:9.5,color:"#475569"});
+    const railY=section.height+dimOff*(.42+index*.16);
+    dim([dimFace.x,railY,section.start],[dimFace.x,railY,section.end],`${section.label} W ${v3dMm(section.width)}mm`,{offset:index%2?11:-11,size:w<620?7.5:9});
+    const outside=shape.startSide==="left"?-dimOff*(.7+index*.22):shape.totalW+dimOff*(.7+index*.22);
+    dim([dimFace.x,0,outside],[dimFace.x,section.height,outside],`${section.label} H ${v3dMm(section.height)}mm`,{offset:index%2?12:-12,size:w<620?7.5:9});
   });
-  shape.sections.forEach((section,index)=>{
-    const edgeA=first.p(section.start,0), edgeB=first.p(section.end,0);
-    const rightSide=(edgeA[0]+edgeB[0])/2>(xA+xB)/2;
-    const edge=rightSide?(edgeA[0]>edgeB[0]?section.start:section.end):(edgeA[0]<edgeB[0]?section.start:section.end);
-    const anchor=first.p(edge,0), top=first.p(edge,section.height);
-    const x=rightSide?Math.max(xA,xB)+26+index*(compact?42:54):Math.min(xA,xB)-26-index*(compact?42:54);
-    line([anchor[0],anchor[1]],[x,anchor[1]],"rgba(71,85,105,.42)",.75,[3,3]);
-    line([top[0],top[1]],[x,top[1]],"rgba(71,85,105,.42)",.75,[3,3]);
-    dim([x,anchor[1]],[x,top[1]],`${section.label} H ${v3dMm(section.height)}mm`,{dx:rightSide?(compact?34:42):-(compact?34:42),size:compact?8:9.5,color:"#475569"});
-  });
-  const noteLines=compact
-    ?[`가로 1,800 기준: W ${v3dMm(hFit.span)} ÷ 1,800 = ${fmt(hFit.exact,3)}장 → ${hFit.cols}열`,
-      `마지막 ${v3dMm(hFit.lastUsed)}mm 사용 / 자투리 ${v3dMm(hFit.offcut)}mm`]
-    :[`가로 1,800 기준: W ${v3dMm(hFit.span)} ÷ 1,800 = ${fmt(hFit.exact,3)}장 → ${hFit.cols}열 · 마지막 ${v3dMm(hFit.lastUsed)}mm 사용 / 자투리 ${v3dMm(hFit.offcut)}mm`];
-  const noteY=h-(compact?78:38), noteSize=compact?9.5:12, lineGap=compact?14:0;
-  ctx.font=`800 ${noteSize}px ${V3D_FONT}`;
-  const noteW=Math.min(w-20,Math.max(...noteLines.map(t=>ctx.measureText(t).width))+24);
-  const noteH=compact?42:32;
-  ctx.fillStyle="rgba(255,251,235,.97)"; ctx.fillRect((w-noteW)/2,noteY-noteH/2,noteW,noteH);
-  ctx.strokeStyle="#f59e0b"; ctx.lineWidth=1; ctx.strokeRect((w-noteW)/2,noteY-noteH/2,noteW,noteH);
-  ctx.fillStyle="#92400e"; ctx.textAlign="center"; ctx.textBaseline="middle";
-  noteLines.forEach((note,index)=>ctx.fillText(note,w/2,noteY+(index-(noteLines.length-1)/2)*lineGap));
-  ctx.textAlign="left"; ctx.textBaseline="alphabetic"; ctx.font=`800 ${compact?11:14}px ${V3D_FONT}`; ctx.fillStyle="#111827";
-  ctx.fillText(`${d.name} · 양끝 계단 단면만 3D 확대`,16,25);
-  ctx.font=`600 ${compact?8.5:11}px ${V3D_FONT}`; ctx.fillStyle="#64748b";
-  ctx.fillText(`실제 두 끝면 사이 길이 L ${v3dMm(d.L)}mm · 선택 ${ep.short} ${ep.perFace}장/면 × 2 = ${ep.sheets}장`,16,43);
+
+  const exactLine=`${spanLabel}: W ${v3dMm(widthFit.span)} ÷ ${v3dMm(widthFit.panelSpan)} = ${fmt(widthFit.exact,3)}장 → ${widthFit.cols}열 · 마지막 ${v3dMm(widthFit.lastUsed)}mm / 절단폭 ${v3dMm(widthFit.offcut)}mm`;
+  ctx.font=`800 ${w<620?8.5:10.5}px ${V3D_FONT}`;
+  const noteW=Math.min(w-24,ctx.measureText(exactLine).width+24);
+  ctx.fillStyle="rgba(255,251,235,.97)"; ctx.fillRect((w-noteW)/2,h-43,noteW,30);
+  ctx.strokeStyle="#f59e0b"; ctx.lineWidth=1; ctx.strokeRect((w-noteW)/2,h-43,noteW,30);
+  ctx.fillStyle="#92400e"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(exactLine,w/2,h-28);
+  ctx.textAlign="left"; ctx.textBaseline="alphabetic";
+  ctx.font=`800 ${w<620?10:13}px ${V3D_FONT}`; ctx.fillStyle="#111827";
+  ctx.fillText(`${d.name} · 양끝면 회전 3D`,16,25);
+  ctx.font=`600 ${w<620?8:10.5}px ${V3D_FONT}`; ctx.fillStyle="#64748b";
+  ctx.fillText(`앞·뒤 동일 단면 · 실제 사이 길이 L ${v3dMm(d.L)}mm · 선택 ${ep.short} ${ep.perFace}장/면 × 2 = ${ep.sheets}장`,16,43);
 }
 
-/* ═══════════════ 긴 외피 전용 3D 그리기 ═══════════════ */
+/* ═══════════════ 천장 전개 3D 그리기 ═══════════════ */
 function v3dRepaint(){
   const m=V3D.model, cv=V3D.canvas;
   if(!m||!cv) return;
@@ -706,6 +742,12 @@ function v3dRepaint(){
   const X=m.x, d=m.d, plans=v3dRunPlans(m), hr=plans.high, dr=plans.drape;
   const cov=v3dCoverage(m);
   const eff=v3dEffStep();
+  v3dSetWasteHover({
+    title:"천장 전개 · 선택 배치",
+    panel:hr.panel+dr.panel,
+    actual:m.x.shell.actual,
+    note:`${v3dOrientationName(hr)} + ${v3dOrientationName(dr)} 기준입니다. 본판과 잔여띠를 모두 포함한 투입 대비 면적차이며, 재사용 가능 여부는 포함하지 않습니다.`
+  });
 
   /* 회전(요·피치) + 화면 맞춤. 깊이는 클수록 화면 앞. */
   const cyw=Math.cos(V3D.yaw), syw=Math.sin(V3D.yaw);

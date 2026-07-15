@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════════════════════
    SVG 도면 그리기.
-   전체 브리핑 · 외피 전개 · 양끝면 · 3D 탭.
+   2D 천장 전개 · 양끝면 전개. 3D 탭은 05-visual3d.js가 담당.
    01-core.js, 01-geometry.js, 02-calc.js 필요.
    ══════════════════════════════════════════════════════════════ */
 
@@ -26,20 +26,88 @@ return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
 }
 
 function draw(x){
-  if(view==="summary") return drawSummary(x);
-  if(view==="roof") return drawRoof(x);
+  if(view==="roof"){
+    setVisualWasteInfo({
+      title:"천장 전개 전체",
+      panel:x.shell.panel,
+      actual:x.shell.actual,
+      note:"긴 외피에 투입한 패널 면적과 실제 피복 면적의 차이입니다. 재사용 가능 여부는 포함하지 않습니다."
+    });
+    return drawRoof(x);
+  }
   if(view==="shell3d") return draw3D(x,"shell"); /* 높은 벽 → 지붕 → 낮은 벽 3D */
   if(view==="ends3d") return draw3D(x,"ends");   /* 양끝면 전용 3D */
-  if(view==="ends") return drawEnds(x);
-  return drawSummary(x);
+  if(view==="ends"){
+    setVisualWasteInfo({
+      title:"양끝면 적용안 전체",
+      panel:x.endPanel,
+      actual:x.endActual,
+      note:x.endCountSource==="manual"
+        ?"검토된 혼합 재단의 투입 면적과 실제 피복 면적의 차이입니다. 개별 절단 조각의 크기를 뜻하지는 않습니다."
+        :"고정 격자 적용안의 투입 면적과 실제 피복 면적의 차이입니다. 재사용 가능 여부는 포함하지 않습니다."
+    });
+    return drawEnds(x);
+  }
+  view="roof";
+  return draw(x);
 }
 
 function setVisualHead(t,s){
-  setText("visualSub",s);
+  const sub=byId("visualSub");
+  if(sub) sub.textContent=s;
+}
+
+let VISUAL_WASTE_INFO=null;
+
+function visualWasteText(info){
+  if(!info) return "";
+  const panel=Number(info.panel)||0, actual=Number(info.actual)||0;
+  const waste=Math.max(0,panel-actual);
+  return [
+    "보온재 남는 면적",
+    info.title||"현재 배치",
+    `${fmt(waste,2)}㎡`,
+    `투입 ${fmt(panel,2)}㎡ − 실제 피복 ${fmt(actual,2)}㎡`,
+    info.note||"재사용 가능 여부는 포함하지 않습니다."
+  ].join("\n");
+}
+
+function setVisualWasteInfo(info){ VISUAL_WASTE_INFO=info||null; }
+
+function visualWasteAttr(info){
+  const text=visualWasteText(info);
+  return text?` data-waste="${esc(text)}" style="cursor:help"`:"";
+}
+
+function bindVisualWasteHover(){
+  const wrap=byId("svgWrap");
+  if(!wrap) return;
+  let tip=byId("visualWasteTip");
+  if(!tip){
+    tip=document.createElement("div");
+    tip.id="visualWasteTip";
+    tip.className="visual-waste-tip";
+    tip.setAttribute("role","tooltip");
+    tip.hidden=true;
+    wrap.appendChild(tip);
+  }
+  const hide=()=>{ tip.hidden=true; };
+  wrap.onpointerleave=hide;
+  wrap.onpointermove=e=>{
+    const hit=e.target&&typeof e.target.closest==="function"?e.target.closest("[data-waste]"):null;
+    const copy=hit?.dataset?.waste||visualWasteText(VISUAL_WASTE_INFO);
+    if(!copy){ hide(); return; }
+    const rect=wrap.getBoundingClientRect();
+    tip.textContent=copy;
+    tip.hidden=false;
+    tip.style.left=`${Math.max(8,Math.min(rect.width-270,e.clientX-rect.left+14))}px`;
+    tip.style.top=`${Math.max(8,Math.min(rect.height-126,e.clientY-rect.top+14))}px`;
+  };
 }
 
 function setSvg(parts){
   setHTML("svgWrap",parts.join(""));
+  bindVisualWasteHover();
 }
 
 /* 아래 legacyDraw*는 이전 분리 도면 참고용이며 현재 draw()에서는 호출하지 않는다. */
@@ -437,6 +505,10 @@ function drawRunBand(s,d,run,box,scale){
   const sampleX=sx+10, sampleY=sy+drawH+18;
   s.push(`<rect class="tile" x="${sampleX}" y="${sampleY}" width="${TILE_S*scale}" height="${TILE_L*scale}"/>`);
   s.push(`<text class="mut" x="${sampleX+TILE_S*scale+8}" y="${sampleY+Math.min(18,TILE_L*scale/2)}">1칸 600×1800</text>`);
+  s.push(`<rect x="${sx}" y="${sy}" width="${drawW}" height="${drawH}" fill="rgba(0,0,0,.001)" pointer-events="all"${visualWasteAttr({
+    title:`${run.name} 배치`, panel:run.panel, actual:run.actual,
+    note:"이 전개 방향에 투입한 패널 면적과 실제 피복 면적의 차이입니다. 재사용 가능 여부는 포함하지 않습니다."
+  })}/>`);
 }
 
 function drawEndBrief(s,x,box){
@@ -550,6 +622,12 @@ function drawEndFixedOption(s,x,box,plan,scale,copy={}){
     }
   }
   s.push(`</g><path d="${g.path}" fill="none" stroke="#111827" stroke-width="2"/>`);
+  const fit=plan.widthFit;
+  const direction=plan.id==="horizontal"?"가로 1,800mm 기준":"세로 600mm 기준";
+  s.push(`<path d="${g.path}" fill="rgba(0,0,0,.001)" pointer-events="all"${visualWasteAttr({
+    title:`${title} · 1면 기준`, panel:plan.panelPerFace, actual:plan.actualPerFace,
+    note:`${direction} ${fmt(fit.exact,3)}장 → ${fit.cols}열 · 마지막 ${fmt(fit.lastUsed,1)}mm 사용 / 끝단 절단폭 ${fmt(fit.offcut,1)}mm. 재사용 가능 여부는 포함하지 않습니다.`
+  })}/>`);
   s.push(`<line class="dim" x1="${ex}" y1="${floorY+20}" x2="${ex+tw}" y2="${floorY+20}"/><text class="mut" x="${ex+tw/2}" y="${floorY+38}" text-anchor="middle">전체 폭 ${fmt(shape.totalW,1)}mm · ${shape.sections.length}개 구간 통합</text>`);
   s.push(`<text class="txt" x="${x0+16}" y="${y0+h-76}" font-weight="800">${copy.resultLabel||"고정 격자"} ${plan.perFace}장/면 · 2면 ${plan.sheets}장</text>`);
   s.push(`<text class="mut" x="${x0+16}" y="${y0+h-52}">${plan.summary}</text>`);
@@ -595,6 +673,10 @@ function drawEndMixedOption(s,x,box,scale){
   }
   s.push(`<line x1="${ex}" y1="${bandTop}" x2="${ex+tw}" y2="${bandTop}" stroke="#c2410c" stroke-width="1.4" stroke-dasharray="7 5"/>`);
   s.push(`</g><path d="${g.path}" fill="none" stroke="#111827" stroke-width="2"/>`);
+  s.push(`<path d="${g.path}" fill="rgba(0,0,0,.001)" pointer-events="all"${visualWasteAttr({
+    title:"가로·세로 혼합 재단 · 1면 기준", panel:panelArea(x.endPerFace), actual:x.endAreaOne,
+    note:"검토된 혼합안의 투입 면적과 실제 피복 면적의 차이입니다. 개별 절단 조각의 크기나 재사용 가능 여부를 뜻하지는 않습니다."
+  })}/>`);
   s.push(`<line class="dim" x1="${ex}" y1="${floorY+20}" x2="${ex+tw}" y2="${floorY+20}"/><text class="mut" x="${ex+tw/2}" y="${floorY+38}" text-anchor="middle">전체 폭 ${fmt(shape.totalW,1)}mm · ${shape.sections.length}개 구간 통합</text>`);
   s.push(`<text class="txt" x="${x0+16}" y="${y0+h-76}" font-weight="800">검토 적용 ${x.endPerFace}장/면 · 2면 ${x.endSheets}장</text>`);
   s.push(`<text class="mut" x="${x0+16}" y="${y0+h-52}">보라: 세로 본판 · 주황: 가로/절단 잔여띠 · 형상 서명 일치</text>`);

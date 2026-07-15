@@ -35,20 +35,21 @@ function buildCaseCards(){
     `<span>${esc(s.label)} ${fmt(s.width)}×${fmt(s.height)}</span>`
   ).join("");
   setHTML("caseGrid",`
-    <div class="case-card active">
-      <span class="check">✓</span>
+    <article class="case-card case-summary-card">
       <div class="case-head">
         <span class="case-letter">${c.name.slice(-1)}</span>
         <span><b>${esc(c.name)}</b><small>${esc(c.subtitle||d.shape.summary)}</small></span>
       </div>
-      <div class="case-thumb">${caseThumbSVG(c)}</div>
-      <div class="case-stats">
-        ${sectionStats}
-        <span>단면 ${d.shape.sections.length}구간</span>
-        <span>외피 전개 ${fmt(d.shape.shellWidth,1)}</span>
+      <div class="case-summary-content">
+        <div class="case-thumb">${caseThumbSVG(c)}</div>
+        <div class="case-stats">
+          ${sectionStats}
+          <span>단면 ${d.shape.sections.length}구간</span>
+          <span>외피 전개 ${fmt(d.shape.shellWidth,1)}</span>
+        </div>
       </div>
       <div class="case-total" id="caseTotal-${c.id}">-</div>
-    </div>`);
+    </article>`);
 }
 
 function selectCase(id){
@@ -163,31 +164,25 @@ function stepShapeIcon(d,mode){
 }
 
 function renderSteps(x){
-  const d=x.d, sh=x.shell;
-  const shape=d.shape;
-  const runDims=sh.runs.map(r=>`${esc(r.name)} ${fmt(r.width,1)}mm`).join(" · ");
-  const profilePath=shape.profileSurfaces.map(s=>esc(s.label)).join(" → ");
-  const foldCount=shape.profileSurfaces.filter(s=>s.foldEdge).length;
-  const reviewed=x.endCountSource==="manual"?"혼합 검토 수량":"고정 격자 자동 최소 수량";
+  const d=x.d;
   const steps=[
-    {iconSvg:stepShapeIcon(d,"drape"), t:"시작 외벽 위에서 양방향 전개",
-     num:runDims,
-     p:`기준선은 ${esc(shape.sections[0].wallLabel)} 위 모서리입니다. 한쪽은 시작 외벽을 바닥까지 직선으로 내리고, 다른 쪽은 ${profilePath} 순서로 끝 외벽 바닥까지 전개합니다.`},
-    {icon:"fold", t:"모서리는 접어서 넘기기",
-     num:`기준선 양방향 · 접힘 경계 ${foldCount}곳`,
-     p:`단면의 지붕 높이 변화와 외벽 연결점은 절단선이 아니라 접힘선입니다. 두 전개 방향을 따로 계산해야 양쪽 바닥 트리밍 위치가 실제와 맞습니다.`},
-    {icon:"wall", t:"1800 전개띠 본판",
-     num:`${sh.fullRows}띠 × ${d.lenCols600}열 = ${fmt(sh.mainSheets)}장`,
-     p:`${runMainLabel(sh)}를 길이 방향 ${d.lenCols600}열로 덮습니다. 큰 면은 이 단계에서 최대한 절단 없이 채웁니다.`},
-    {icon:"band", t:"바닥 잔여띠 최적 선택",
-     num:runBandLabel(sh),
-     p:`각 방향의 바닥 쪽 잔여는 ①가로 1800×600 밴드 ②1800폭에서 자른 스트립을 따로 비교합니다. ${runBandCompareLabel(sh)}.`},
-    {iconSvg:stepShapeIcon(d,"ends"), t:"양끝 계단형 단면",
-     num:`${x.endPerFace}장/면 × 2 = ${fmt(x.endSheets)}장`,
-     p:`정면 단면 전체를 구간 경계에서 따로 올림하지 않는 하나의 면으로 봅니다. 가로 연속 격자와 세로 연속 격자를 비교하고, 현재 총계에는 ${reviewed}을 적용합니다.`}
+    {iconSvg:stepShapeIcon(d,"drape"), t:"기준선에서 시작",
+     p:"기준 외벽 위 모서리에서 시작해 한쪽은 외벽을 바닥까지 곧게 내리고, 반대쪽은 지붕 윤곽을 따라 끝 외벽까지 이어 덮습니다."},
+    {icon:"fold", t:"모서리는 접어서 연결",
+     p:"지붕 높이가 바뀌는 지점과 외벽 연결점은 재단선이 아닌 접힘선으로 처리해, 외피가 끊기지 않도록 연결합니다."},
+    {icon:"wall", t:"큰 면부터 이어 덮기",
+     p:"긴 외피의 큰 면을 먼저 채운 뒤 가장자리로 이어가며, 불필요한 이음과 자투리 재단을 줄입니다."},
+    {icon:"band", t:"가로·세로 배치 비교",
+     p:"가로로 눕혀 덮는 안과 세로로 세워 덮는 안을 모두 비교해, 큰 면과 남는 띠에 맞는 방향을 적용합니다."},
+    {iconSvg:stepShapeIcon(d,"ends"), t:"양끝면은 연속 면으로 배치",
+     p:"양끝 계단형 단면은 구간마다 나누지 않고 하나의 연속 면으로 봅니다. 가로와 세로 배치를 비교한 뒤 알맞은 방식으로 덮습니다."}
   ];
-  setHTML("stepsGrid",steps.map((s,i)=>
-    `<div class="step"><span class="n">${i+1}</span><div class="icon">${s.iconSvg||STEP_ICONS[s.icon]}</div><b class="t">${s.t}</b><span class="num">${s.num}</span><p>${s.p}</p></div>`
+  const comparison=byId("orientationComparison");
+  if(comparison){
+    comparison.textContent="가로 배치와 세로 배치를 모두 비교해, 필요한 수량과 남는 면적을 함께 검토했습니다.";
+  }
+  setHTML("stepsGrid",steps.map(s=>
+    `<div class="step"><div class="icon">${s.iconSvg||STEP_ICONS[s.icon]}</div><b class="t">${s.t}</b><p>${s.p}</p></div>`
   ).join(""));
 }
 

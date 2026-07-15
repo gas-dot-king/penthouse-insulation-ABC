@@ -26,8 +26,7 @@
     <!-- CASES 배열 전체 요약 카드 -->
     <div class="allcases" id="allCasesSummary"></div>
     <nav class="jump" id="jumpNav">
-      <a href="#sec-cases">케이스</a>
-      <a href="#sec-summary">요약</a>
+      <a href="#sec-cases">케이스·수량</a>
       <a href="#sec-method">덮는 방법</a>
       <a href="#sec-visual">시각화</a>
       <a href="#sec-zones">구역별</a>
@@ -40,26 +39,26 @@
 <main>
   <div class="inner">
 
-    <!-- 1. 케이스 선택 -->
-    <section id="sec-cases">
-      <div class="sec-head"><span class="sec-num">1</span><h2>케이스 요약</h2></div>
-      <p class="sec-sub">상단 고정 바에서 케이스를 고르면 여기와 아래 모든 계산이 바뀝니다. 미니 도형은 설정한 단면의 실제 비례 정면도입니다.</p>
+    <!-- 케이스 선택과 결과 요약 -->
+    <section id="sec-cases" class="case-overview">
+      <div class="plain-sec-head"><h2>케이스 요약</h2></div>
+      <p class="section-copy">상단 고정 바에서 케이스를 고르면 아래 수량과 배치가 함께 바뀝니다. 미니 도형은 설정한 단면의 실제 비례 정면도입니다.</p>
       <div class="case-grid" id="caseGrid"></div>
-    </section>
 
-    <!-- 2. 결과 요약 -->
-    <section id="sec-summary">
-      <div class="sec-head"><span class="sec-num">2</span><h2>결과 요약</h2></div>
-      <p class="sec-sub">설정한 계단형 단면의 긴 외피 전개 + 잔여띠 최적 선택 + 양끝면 기준 최종 수량입니다.</p>
-      <div class="card">
+      <div class="case-result" id="sec-summary">
+        <div class="case-result-head">
+          <h3>현재 케이스의 필요 수량</h3>
+          <p>가로와 세로 배치를 비교해 선택한 긴 외피와 양끝면 기준의 결과입니다.</p>
+        </div>
+        <div class="card result-card">
         <div class="hero-grid">
-          <div>
+          <div class="hero-pane hero-total-pane">
             <div class="hero-label" id="heroLabel">-</div>
             <div class="big-num"><span id="heroTotal">-</span><small> 장 필요</small></div>
             <div class="break-bar" id="breakBar" role="img" aria-label="구역별 수량 비율"></div>
             <div class="break-legend" id="breakLegend"></div>
           </div>
-          <div class="order-card">
+          <div class="order-card hero-pane hero-order-pane">
             <div>
               <div class="hero-label">발주 권장 <span class="muted small">(여유율 포함 올림)</span></div>
               <div class="big-num"><span id="orderBig">-</span><small> 장 발주</small></div>
@@ -86,33 +85,38 @@
           <summary>케이스 치수 전체 보기</summary>
           <p id="caseDims">-</p>
         </details>
+        </div>
       </div>
     </section>
 
-    <!-- 3. 덮는 방법 -->
+    <!-- 덮는 방법 -->
     <section id="sec-method">
-      <div class="sec-head"><span class="sec-num">3</span><h2>어떻게 덮나요? — 전개 기준 5단계</h2></div>
-      <p class="sec-sub">설정한 시작 외벽 위 모서리에서 한쪽은 시작 외벽을 직선 하강하고, 반대쪽은 모든 지붕·단차를 지나 끝 외벽까지 이어 전개합니다.</p>
+      <div class="plain-sec-head"><h2>어떻게 덮나요?</h2></div>
+      <p class="section-copy">한쪽 외벽에서 시작해 지붕과 단차를 따라 반대쪽 외벽까지 연속으로 덮습니다.</p>
       <div class="steps" id="stepsGrid"></div>
-      <div class="orientation-guide" aria-label="단위 보온재 배치 방향 안내">
-        <div class="orientation-item"><span class="panel-icon horizontal"></span><span><b>보온재 1장</b><small>1800 × 600mm · 1.08㎡ 고정</small></span></div>
-        <div class="orientation-item"><span class="panel-icon vertical"></span><span><b>세로 배치</b><small>폭 600 · 높이 1800 (벽 본판)</small></span></div>
-        <div class="orientation-item"><span class="panel-icon horizontal"></span><span><b>가로 배치</b><small>폭 1800 · 높이 600 (밴드)</small></span></div>
-        <div class="orientation-item"><span class="panel-icon roof"></span><span><b>천장 전개</b><small>길이방향 600 · 전개방향 1800</small></span></div>
-      </div>
+      <p class="method-compare">가로로 놓는 방식과 세로로 놓는 방식을 함께 비교해, 각 면에서 남는 면적이 적은 배치를 선택합니다.</p>
     </section>
 
-    <!-- 4. 시각화 -->
+    <!-- 배치 시각화 -->
     <section id="sec-visual">
-      <div class="sec-head"><span class="sec-num">4</span><h2 id="visualTitle">배치 시각화</h2></div>
-      <p class="sec-sub" id="visualSub">-</p>
+      <div class="plain-sec-head"><h2 id="visualTitle">배치 시각화</h2></div>
+      <p class="visual-sub sr-only" id="visualSub" aria-live="polite">-</p>
       <div class="card">
-        <div class="tabs" id="viewTabs">
-          <button class="tab" data-view="summary">전체 브리핑</button>
-          <button class="tab" data-view="roof">천장 전개</button>
-          <button class="tab" data-view="ends">양끝 단면</button>
-          <button class="tab tab-3d active" data-view="shell3d">3D 높은벽 → 지붕 → 낮은벽</button>
-          <button class="tab tab-3d" data-view="ends3d">3D 양끝면</button>
+        <div class="view-groups" id="viewTabs" aria-label="배치 시각화 종류">
+          <div class="view-group view-group-2d">
+            <div class="view-group-label">2D</div>
+            <div class="tabs view-group-tabs">
+              <button class="tab" data-view="roof">천장 전개</button>
+              <button class="tab" data-view="ends">양끝면 전개</button>
+            </div>
+          </div>
+          <div class="view-group view-group-3d">
+            <div class="view-group-label">3D</div>
+            <div class="tabs view-group-tabs">
+              <button class="tab tab-3d active" data-view="shell3d">천장 전개</button>
+              <button class="tab tab-3d" data-view="ends3d">양끝면 전개</button>
+            </div>
+          </div>
         </div>
         <div class="legend">
           <span><i class="swatch" style="background:var(--blue);border-color:var(--blue-line)"></i>세로 배치·기본 패널</span>
@@ -120,14 +124,15 @@
           <span><i class="swatch" style="background:var(--amber);border-color:var(--amber-line)"></i>가로 배치·잔여 밴드</span>
           <span><i class="swatch" style="background:var(--red);border-color:var(--red-line)"></i>절단 자투리</span>
           <span><i class="swatch" style="background:var(--violet);border-color:var(--violet-line)"></i>양끝면 혼합안</span>
+          <span class="hover-legend">도면에 마우스를 올리면 남는 면적 표시</span>
         </div>
         <div id="svgWrap"></div>
       </div>
     </section>
 
-    <!-- 5. 구역별 상세 -->
+    <!-- 구역별 상세 -->
     <section id="sec-zones">
-      <div class="sec-head"><span class="sec-num">5</span><h2>구역별 수량 상세</h2></div>
+      <div class="plain-sec-head"><h2>구역별 수량 상세</h2></div>
       <p class="sec-sub">색상은 요약 막대와 동일합니다. ‘배치 보기’를 누르면 해당 구역 도면으로 이동합니다.</p>
       <details class="audit" id="zonesDetails">
         <summary>구역별 수량 상세 펼쳐보기 <small>구역 카드 + 계획표</small></summary>
@@ -143,9 +148,9 @@
       </details>
     </section>
 
-    <!-- 6. 비교 -->
+    <!-- 비교 -->
     <section id="sec-compare">
-      <div class="sec-head"><span class="sec-num">6</span><h2>비교</h2></div>
+      <div class="plain-sec-head"><h2>비교</h2></div>
       <p class="sec-sub">방향을 바꾸면 얼마나 달라지는지, 다른 케이스는 몇 장인지 한 번에 봅니다.</p>
 
       <details class="audit" id="compareDetails">
@@ -175,9 +180,9 @@
       </details>
     </section>
 
-    <!-- 7. 검산 -->
+    <!-- 검산 -->
     <section id="sec-audit">
-      <div class="sec-head"><span class="sec-num">7</span><h2>공식 · 검산</h2></div>
+      <div class="plain-sec-head"><h2>공식 · 검산</h2></div>
       <p class="sec-sub">모든 수량의 중간 계산을 공식 그대로 펼쳐 확인할 수 있습니다.</p>
       <details class="audit" id="auditDetails">
         <summary>공식 및 중간 계산 전체 보기 <small>검산용 · 6개 블록</small></summary>

@@ -9,6 +9,10 @@ const root=path.resolve(__dirname,"..");
 const page=fs.readFileSync(path.join(root,"penthouse_insulation_ABC_case_optimizer.html"),"utf8");
 assert.match(page,/data-view="shell3d"/);
 assert.match(page,/data-view="ends3d"/);
+assert.match(page,/<div class="view-group-label">2D<\/div>/);
+assert.match(page,/<div class="view-group-label">3D<\/div>/);
+assert.doesNotMatch(page,/data-view="summary"/);
+assert.doesNotMatch(page,/긴 외피 전용 3D/);
 const context=vm.createContext({console,window:{devicePixelRatio:1}});
 for(const file of [
   "js/01-core.js","js/01-geometry.js","js/02-calc.js",
@@ -37,21 +41,35 @@ const result=vm.runInContext(`(()=>{
   const aModel=v3dModel(calc(CASES[0]));
   const aEndCopy=v3dEndInfoHTML(aModel).includes("3.918장")&&
     v3dEndInfoHTML(aModel).includes("1,653mm")&&v3dEndInfoHTML(aModel).includes("147mm");
-  const calls=[];
+  const canvasPoints=[];
   const fakeCtx={
-    setTransform(){},clearRect(){},beginPath(){},moveTo(){},lineTo(){},closePath(){},fill(){},stroke(){},
+    setTransform(){},clearRect(){},beginPath(){},moveTo(x,y){canvasPoints.push([x,y])},lineTo(x,y){canvasPoints.push([x,y])},closePath(){},fill(){},stroke(){},
     setLineDash(){},fillRect(){},strokeRect(){},save(){},clip(){},restore(){},fillText(){},strokeText(){},
     measureText(text){return {width:String(text).length*7};}
   };
   V3D.canvas={clientWidth:1000,clientHeight:640,width:0,height:0,isConnected:true};
   V3D.ctx=new Proxy(fakeCtx,{get(target,key){
     if(key in target) return target[key];
-    return (...args)=>calls.push([String(key),args.length]);
+    return ()=>{};
   }});
+  V3D.yaw=2.18; V3D.pitch=.42;
   v3dRepaint();
   const endCanvasPainted=V3D.canvas.width===1000&&V3D.canvas.height===640;
+  const projection=()=>JSON.stringify(canvasPoints.slice(0,20).map(p=>p.map(v=>Number(v.toFixed(2)))));
+  const firstEndProjection=projection();
+  canvasPoints.length=0;
+  V3D.yaw=1.35; V3D.pitch=.42;
+  v3dRepaint();
+  const yawProjection=projection();
+  canvasPoints.length=0;
+  V3D.yaw=2.18; V3D.pitch=.90;
+  v3dRepaint();
+  const pitchProjection=projection();
+  const endRotates=firstEndProjection!==yawProjection&&firstEndProjection!==pitchProjection;
+  const endHover=v3dWasteHoverText(V3D.hoverInfo);
   V3D.scope="shell"; V3D.step=3;
   v3dRepaint();
+  const shellHover=v3dWasteHoverText(V3D.hoverInfo);
   return {
     faceCount:m.faces.length,profileFaces:m.profileFaces.length,stepFaces:m.stepFaces.length,
     endPoints:m.ends[0].poly.length,uniqueKeys:new Set(m.faces.map(f=>f.key)).size,
@@ -63,6 +81,9 @@ const result=vm.runInContext(`(()=>{
     endInfoHasScope:endInfo.includes("양끝 계단 단면")&&endInfo.includes("한 줄의 폭 방향 수량"),
     aEndCopy,
     endCanvasPainted,
+    endRotates,
+    endHoverHasWaste:endHover.includes("보온재 남는 면적")&&endHover.includes("끝단 절단폭"),
+    shellHoverHasWaste:shellHover.includes("보온재 남는 면적")&&shellHover.includes("천장 전개"),
     shellCanvasPainted:V3D.canvas.width===1000&&V3D.canvas.height===640,
     visualClean:!/(NaN|undefined)/.test(svg.join("")),visualHasRise:svg.join("").includes("C 지붕")
   };
@@ -71,7 +92,7 @@ const result=vm.runInContext(`(()=>{
 assert.deepEqual(JSON.parse(JSON.stringify(result)),{
   faceCount:9,profileFaces:8,stepFaces:3,endPoints:10,uniqueKeys:9,finiteFaces:true,
   endId:"mixed",endRender:"horizontal",endFallback:true,shellScenario:130,endScenario:26,total:156,
-  dimHasSections:true,infoHasProfile:true,endDimHasExactFit:true,endInfoHasScope:true,aEndCopy:true,endCanvasPainted:true,shellCanvasPainted:true,visualClean:true,visualHasRise:true
+  dimHasSections:true,infoHasProfile:true,endDimHasExactFit:true,endInfoHasScope:true,aEndCopy:true,endCanvasPainted:true,endRotates:true,endHoverHasWaste:true,shellHoverHasWaste:true,shellCanvasPainted:true,visualClean:true,visualHasRise:true
 });
 
-console.log("visual model smoke: 4단 2D/분리 3D 모델·외곽 치수·fallback 통과");
+console.log("visual model smoke: 2D/3D 분류·회전 양끝면·남는 면적 hover 통과");
